@@ -146,7 +146,7 @@ header h1 {
 .btn-share {
     background: var(--success);
     color: var(--white);
-    margin-left: 8px;
+    min-width: 80px;
 }
 
 .btn-share:hover:not(:disabled) {
@@ -186,14 +186,10 @@ header h1 {
 }
 
 .setting-row {
-    display: none;
+    display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
-}
-
-.settings-panel.expanded .setting-row {
-    display: flex;
 }
 
 .setting-row label {
@@ -213,6 +209,40 @@ header h1 {
 
 .settings-panel button {
     margin-right: 8px;
+}
+
+.settings-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.settings-content,
+.squad-content {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.squad-content .roster-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.squad-content .roster-controls input {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--white);
+    font-size: 0.9rem;
+}
+
+.squad-content .roster-list {
+    max-height: 200px;
+    overflow-y: auto;
 }
 
 /* Pitch Container */
@@ -285,6 +315,21 @@ header h1 {
     border-radius: 10px 10px 0 0;
 }
 
+/* Header Controls */
+.header-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.header-controls .timer-buttons {
+    display: flex;
+    gap: 6px;
+    min-width: 80px;
+    justify-content: center;
+}
+
 /* Mode Tabs */
 .mode-tabs {
     display: flex;
@@ -320,6 +365,7 @@ header h1 {
     padding: 15px;
     margin-bottom: 15px;
     text-align: center;
+    min-height: 140px;
 }
 
 .interval-config {
@@ -349,6 +395,43 @@ header h1 {
 .interval-config input:focus {
     outline: none;
     border-color: var(--primary);
+}
+
+.stepper {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.stepper-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--white);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.stepper-btn:hover {
+    background: var(--primary);
+}
+
+.stepper-btn:active {
+    background: var(--primary-dark);
+}
+
+.stepper-value {
+    min-width: 36px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 1rem;
 }
 
 .interval-tabs {
@@ -391,17 +474,24 @@ header h1 {
 .live-controls {
     background: rgba(255, 255, 255, 0.05);
     border-radius: 15px;
-    padding: 15px;
+    padding: 12px 15px;
     margin-bottom: 15px;
     text-align: center;
+    position: relative;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
 }
 
 .score-display {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 15px;
-    margin-bottom: 10px;
+    gap: 10px;
+    margin-bottom: 5px;
 }
 
 .score-team {
@@ -409,6 +499,7 @@ header h1 {
     flex-direction: column;
     align-items: center;
     gap: 2px;
+    min-width: 70px;
 }
 
 .team-label {
@@ -429,31 +520,79 @@ header h1 {
     margin-top: 18px;
 }
 
-.score-buttons {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    margin-bottom: 15px;
+.score-them-tap {
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 10px;
+    transition: background 0.2s;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.score-them-tap:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.score-them-tap:active {
+    background: rgba(231, 76, 60, 0.3);
 }
 
 .live-hint {
     font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.5);
-    margin-top: 10px;
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
+.live-hint-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.9);
+    border-radius: 15px;
+    z-index: 10;
+    opacity: 1;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+}
+
+.live-hint-overlay.hidden {
+    opacity: 0;
 }
 
 .live-controls .timer-display {
     display: flex;
-    flex-direction: column;
+    justify-content: center;
     align-items: center;
-    gap: 5px;
-    margin-bottom: 10px;
 }
 
-.live-controls .timer-buttons {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
+/* Compact live mode score and timer */
+.live-controls .score {
+    font-size: 1.8rem;
+}
+
+.live-controls .score-divider {
+    font-size: 1.4rem;
+    margin-top: 10px;
+}
+
+.live-controls #current-time {
+    font-size: 1.8rem;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 600;
+    letter-spacing: 2px;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 5px 12px;
+    border-radius: 8px;
+    color: #2ecc71;
+    text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
 }
 
 /* Player card goal indicator */
@@ -561,6 +700,12 @@ header h1 {
     background: rgba(52, 152, 219, 0.4);
     border-color: var(--primary);
     transform: scale(1.1);
+    animation: dropZonePulse 0.6s ease-in-out infinite;
+}
+
+@keyframes dropZonePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(52, 152, 219, 0); }
 }
 
 .player-slot.has-player {
@@ -598,6 +743,20 @@ header h1 {
 .player-card.dragging {
     opacity: 0.5;
     transform: scale(1.1);
+}
+
+/* Drag preview element */
+.drag-preview {
+    position: absolute;
+    left: -9999px;
+    background: var(--primary);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    white-space: nowrap;
 }
 
 .player-card.scoring {
@@ -660,6 +819,7 @@ header h1 {
 .bench.drag-over {
     background: rgba(52, 152, 219, 0.2);
     border-color: var(--primary);
+    animation: dropZonePulse 0.6s ease-in-out infinite;
 }
 
 .bench .player-card {
@@ -860,6 +1020,24 @@ header h1 {
     font-weight: bold;
     color: var(--success);
     margin-left: 8px;
+}
+
+.event-delete-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.event-delete-btn:hover {
+    background: var(--accent);
+    color: var(--white);
 }
 
 .sub-in {
@@ -1097,8 +1275,6 @@ header h1 {
     flex-direction: column;
     gap: 8px;
     margin-bottom: 15px;
-    max-height: 250px;
-    overflow-y: auto;
 }
 
 .assist-player-btn {

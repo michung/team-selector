@@ -40,6 +40,7 @@ class TeamSelector {
         // Flag to prevent auto-fill after removal
         this.justRemovedPlayer = false;
         this.justAddedPlayer = false;
+        this.lastRemovedPlayer = null; // Track last removed player for undo
 
         // Slot fill order: top to bottom, left to right
         // FW, LW, LCM, RCM, RW, LB, CB, RB, GK
@@ -218,7 +219,20 @@ class TeamSelector {
 
         // Settings toggle
         document.getElementById('toggle-settings').addEventListener('click', () => {
-            document.getElementById('settings-panel').classList.toggle('expanded');
+            const content = document.getElementById('settings-content');
+            const isVisible = content.style.display !== 'none';
+            content.style.display = isVisible ? 'none' : 'block';
+            // Close squad if opening settings
+            if (!isVisible) document.getElementById('squad-content').style.display = 'none';
+        });
+
+        // Squad toggle
+        document.getElementById('toggle-squad').addEventListener('click', () => {
+            const content = document.getElementById('squad-content');
+            const isVisible = content.style.display !== 'none';
+            content.style.display = isVisible ? 'none' : 'block';
+            // Close settings if opening squad
+            if (!isVisible) document.getElementById('settings-content').style.display = 'none';
         });
 
         // Settings inputs
@@ -228,11 +242,16 @@ class TeamSelector {
             this.saveState();
         });
 
-        // Interval count (Plan mode)
-        document.getElementById('interval-count').addEventListener('change', (e) => {
-            const newCount = Math.max(1, Math.min(10, parseInt(e.target.value) || 4));
-            e.target.value = newCount;
+        // Interval count (Plan mode) - stepper buttons
+        document.getElementById('interval-dec').addEventListener('click', () => {
+            const newCount = Math.max(1, this.settings.intervalCount - 1);
             this.updateIntervalCount(newCount);
+            document.getElementById('interval-count').textContent = newCount;
+        });
+        document.getElementById('interval-inc').addEventListener('click', () => {
+            const newCount = Math.min(6, this.settings.intervalCount + 1);
+            this.updateIntervalCount(newCount);
+            document.getElementById('interval-count').textContent = newCount;
         });
 
         // Timer controls
@@ -240,9 +259,8 @@ class TeamSelector {
         document.getElementById('pause-btn').addEventListener('click', () => this.pauseTimer());
         document.getElementById('reset-match').addEventListener('click', () => this.resetMatch());
 
-        // Score controls
-        document.getElementById('them-goal-btn').addEventListener('click', () => this.recordGoal(null, 'them'));
-        document.getElementById('undo-goal-btn').addEventListener('click', () => this.undoLastGoal());
+        // Score controls - tap Them score to increment
+        document.getElementById('score-them-team').addEventListener('click', () => this.recordGoal(null, 'them'));
         document.getElementById('no-assist-btn').addEventListener('click', () => this.skipAssist());
 
         // Speed toggle for testing (tap timer display)
@@ -254,11 +272,6 @@ class TeamSelector {
             if (e.key === 'Enter') this.addPlayer();
         });
 
-        // Roster toggle
-        document.getElementById('roster-toggle').addEventListener('click', () => {
-            document.getElementById('roster-section').classList.toggle('expanded');
-        });
-
         // Share plan button
         document.getElementById('share-plan-btn').addEventListener('click', () => this.sharePlan());
 
@@ -267,7 +280,7 @@ class TeamSelector {
 
         // Set initial values
         document.getElementById('match-duration').value = this.settings.matchDuration;
-        document.getElementById('interval-count').value = this.settings.intervalCount;
+        document.getElementById('interval-count').textContent = this.settings.intervalCount;
     }
 
     // ==================== SCORE TRACKING ====================
@@ -289,19 +302,20 @@ class TeamSelector {
         const optionsContainer = document.getElementById('assist-options');
         optionsContainer.innerHTML = '';
         
-        // Get current pitch players (excluding the scorer)
+        // Get current pitch players (excluding the scorer), sorted by number descending
         const lineup = this.getCurrentLineup();
-        lineup.forEach(playerId => {
-            if (playerId && playerId !== scorerId) {
-                const player = this.getPlayerById(playerId);
-                if (player) {
-                    const btn = document.createElement('button');
-                    btn.className = 'btn assist-player-btn';
-                    btn.innerHTML = `<span class="assist-number">${player.number}</span> ${player.name}`;
-                    btn.addEventListener('click', () => this.selectAssist(playerId));
-                    optionsContainer.appendChild(btn);
-                }
-            }
+        const players = lineup
+            .filter(playerId => playerId && playerId !== scorerId)
+            .map(playerId => this.getPlayerById(playerId))
+            .filter(p => p)
+            .sort((a, b) => b.number - a.number);
+        
+        players.forEach(player => {
+            const btn = document.createElement('button');
+            btn.className = 'btn assist-player-btn';
+            btn.innerHTML = `<span class="assist-number">${player.number}</span> ${player.name}`;
+            btn.addEventListener('click', () => this.selectAssist(player.id));
+            optionsContainer.appendChild(btn);
         });
         
         overlay.style.display = 'flex';
@@ -328,6 +342,15 @@ class TeamSelector {
             this.state.scoreUs++;
         } else {
             this.state.scoreThem++;
+        }
+        
+        // Haptic feedback for goals
+        if ('vibrate' in navigator) {
+            if (team === 'us') {
+                navigator.vibrate([100, 50, 100]); // Double pulse for our goal
+            } else {
+                navigator.vibrate(100); // Single pulse for opponent goal
+            }
         }
         
         this.state.goalHistory.push({
@@ -476,6 +499,15 @@ class TeamSelector {
         document.getElementById('live-mode-btn').classList.toggle('active', mode === 'live');
         document.getElementById('plan-controls').style.display = mode === 'plan' ? 'block' : 'none';
         document.getElementById('live-controls').style.display = mode === 'live' ? 'block' : 'none';
+        document.getElementById('share-plan-btn').style.display = mode === 'plan' ? 'inline-block' : 'none';
+        document.getElementById('timer-buttons').style.display = mode === 'live' ? 'flex' : 'none';
+        
+        // Show live hint overlay when switching to live mode
+        if (mode === 'live') {
+            const overlay = document.getElementById('live-hint-overlay');
+            overlay.classList.remove('hidden');
+            setTimeout(() => overlay.classList.add('hidden'), 3000);
+        }
         
         // Toggle stats vs events section
         document.getElementById('stats-section').style.display = mode === 'plan' ? 'block' : 'none';
@@ -703,6 +735,15 @@ class TeamSelector {
             this.startDrag(playerId, location, slotIndex);
             e.dataTransfer.effectAllowed = 'move';
             element.classList.add('dragging');
+            
+            // Create custom drag image
+            const dragPreview = document.createElement('div');
+            dragPreview.className = 'drag-preview';
+            const player = this.getPlayerById(playerId);
+            dragPreview.textContent = player ? player.name : '';
+            document.body.appendChild(dragPreview);
+            e.dataTransfer.setDragImage(dragPreview, 40, 20);
+            setTimeout(() => dragPreview.remove(), 0);
         });
 
         element.addEventListener('dragend', () => {
@@ -834,6 +875,7 @@ class TeamSelector {
     removePlayerFromPitch(slotIndex) {
         this.justRemovedPlayer = true;
         const lineup = [...this.getCurrentLineup()];
+        this.lastRemovedPlayer = lineup[slotIndex]; // Store removed player for undo
         lineup[slotIndex] = null;
         this.setCurrentLineup(lineup);
         this.renderPitch();
@@ -858,12 +900,18 @@ class TeamSelector {
         const lineup = this.getCurrentLineup();
         if (lineup[slotIndex] !== null) return;
         
-        const lowestPlayer = this.getLowestMinutesBenchPlayer();
-        if (!lowestPlayer) return;
+        // Use last removed player if available and still on bench
+        let playerToAdd = null;
+        if (this.lastRemovedPlayer && !this.isPlayerOnPitch(this.lastRemovedPlayer)) {
+            playerToAdd = this.lastRemovedPlayer;
+        }
+        
+        if (!playerToAdd) return;
         
         const newLineup = [...lineup];
-        newLineup[slotIndex] = lowestPlayer.id;
+        newLineup[slotIndex] = playerToAdd;
         this.setCurrentLineup(newLineup);
+        this.lastRemovedPlayer = null; // Clear after use
         this.renderPitch();
         this.renderBench();
         this.renderStats();
@@ -1123,7 +1171,6 @@ class TeamSelector {
         const minuteLabel = this.state.mode === 'plan' ? `${plannedMinutes}'` : `${minutes}'`;
         
         card.innerHTML = `
-            <span class="player-number">${player.number}</span>
             <span class="player-name">${player.name}</span>
             <span class="player-minutes">${minuteLabel}</span>
         `;
@@ -1292,7 +1339,8 @@ class TeamSelector {
         // Show events in reverse order (newest first)
         const events = [...this.state.matchEvents].reverse();
         
-        events.forEach(event => {
+        events.forEach((event, reversedIndex) => {
+            const originalIndex = this.state.matchEvents.length - 1 - reversedIndex;
             const eventDiv = document.createElement('div');
             eventDiv.className = `match-event event-${event.type}`;
             
@@ -1309,6 +1357,7 @@ class TeamSelector {
                         <strong>GOAL</strong> - ${event.scorer}${assistText}
                         <span class="event-score">${event.score}</span>
                     </span>
+                    <button class="event-delete-btn" data-index="${originalIndex}">✕</button>
                 `;
             } else if (event.type === 'sub') {
                 eventDiv.innerHTML = `
@@ -1318,11 +1367,67 @@ class TeamSelector {
                         <span class="sub-in">↑ ${event.playerIn}</span>
                         <span class="sub-out">↓ ${event.playerOut}</span>
                     </span>
+                    <button class="event-delete-btn" data-index="${originalIndex}">✕</button>
                 `;
+            }
+            
+            // Add delete handler
+            const deleteBtn = eventDiv.querySelector('.event-delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => this.deleteMatchEvent(originalIndex));
             }
             
             eventsLog.appendChild(eventDiv);
         });
+    }
+
+    deleteMatchEvent(index) {
+        const event = this.state.matchEvents[index];
+        if (!event) return;
+        
+        if (event.type === 'goal') {
+            // Find corresponding goal in goalHistory and remove it
+            const goalIndex = this.state.goalHistory.findIndex(g => 
+                g.time === event.time && 
+                (event.team === 'them' ? g.team === 'them' : g.team === 'us')
+            );
+            
+            if (goalIndex !== -1) {
+                const goal = this.state.goalHistory[goalIndex];
+                
+                // Decrement score
+                if (goal.team === 'us') {
+                    this.state.scoreUs = Math.max(0, this.state.scoreUs - 1);
+                } else {
+                    this.state.scoreThem = Math.max(0, this.state.scoreThem - 1);
+                }
+                
+                // Remove goal from player
+                if (goal.playerId) {
+                    const player = this.getPlayerById(goal.playerId);
+                    if (player && player.goals > 0) {
+                        player.goals--;
+                    }
+                }
+                
+                // Remove assist from player
+                if (goal.assistPlayerId) {
+                    const assister = this.getPlayerById(goal.assistPlayerId);
+                    if (assister && assister.assists > 0) {
+                        assister.assists--;
+                    }
+                }
+                
+                this.state.goalHistory.splice(goalIndex, 1);
+            }
+            
+            this.updateScoreDisplay();
+        }
+        
+        // Remove the event
+        this.state.matchEvents.splice(index, 1);
+        this.renderMatchEvents();
+        this.saveState();
     }
 
     getIntervalsForPlayer(playerId) {
