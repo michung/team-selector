@@ -32,6 +32,11 @@ body {
     max-width: 500px;
     margin: 0 auto;
     padding: 10px;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 
 /* Header Styles */
@@ -570,7 +575,11 @@ header h1 {
     align-items: center;
     justify-content: center;
     cursor: grab;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
     box-shadow: var(--shadow);
     transition: transform 0.2s ease;
     touch-action: none;
