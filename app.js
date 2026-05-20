@@ -52,6 +52,19 @@ class TeamSelector {
     }
 
     init() {
+        // Dev mode: clear localStorage if ?clear is in URL
+        if (window.location.search.includes('clear')) {
+            localStorage.removeItem('teamSelectorState');
+            // Remove ?clear from URL without reload
+            history.replaceState(null, '', window.location.pathname + window.location.hash);
+        }
+        
+        // If shared plan in URL, clear localStorage first so it takes precedence
+        const hash = window.location.hash.slice(1);
+        if (hash && hash.includes('p=') && hash.includes('l=')) {
+            localStorage.removeItem('teamSelectorState');
+        }
+        
         this.loadState();
         // Check for shared plan in URL (overrides saved state)
         if (window.location.hash) {
