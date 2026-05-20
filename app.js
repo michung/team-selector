@@ -243,6 +243,7 @@ class TeamSelector {
         // Score controls
         document.getElementById('them-goal-btn').addEventListener('click', () => this.recordGoal(null, 'them'));
         document.getElementById('undo-goal-btn').addEventListener('click', () => this.undoLastGoal());
+        document.getElementById('no-assist-btn').addEventListener('click', () => this.skipAssist());
 
         // Speed toggle for testing (tap timer display)
         document.querySelector('.timer-display').addEventListener('click', () => this.toggleSpeed());
@@ -272,6 +273,57 @@ class TeamSelector {
     // ==================== SCORE TRACKING ====================
 
     recordGoal(playerId, team = 'us') {
+        // For 'them' goals or unassigned goals, record immediately without assist
+        if (team === 'them' || !playerId) {
+            this.finalizeGoal(playerId, null, team);
+            return;
+        }
+        
+        // For 'us' goals with a scorer, show assist picker
+        this.pendingGoal = { scorerId: playerId, team: team };
+        this.showAssistPicker(playerId);
+    }
+
+    showAssistPicker(scorerId) {
+        const overlay = document.getElementById('assist-picker');
+        const optionsContainer = document.getElementById('assist-options');
+        optionsContainer.innerHTML = '';
+        
+        // Get current pitch players (excluding the scorer)
+        const lineup = this.getCurrentLineup();
+        lineup.forEach(playerId => {
+            if (playerId && playerId !== scorerId) {
+                const player = this.getPlayerById(playerId);
+                if (player) {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn assist-player-btn';
+                    btn.innerHTML = `<span class="assist-number">${player.number}</span> ${player.name}`;
+                    btn.addEventListener('click', () => this.selectAssist(playerId));
+                    optionsContainer.appendChild(btn);
+                }
+            }
+        });
+        
+        overlay.style.display = 'flex';
+    }
+
+    selectAssist(assistPlayerId) {
+        if (this.pendingGoal) {
+            this.finalizeGoal(this.pendingGoal.scorerId, assistPlayerId, this.pendingGoal.team);
+            this.pendingGoal = null;
+        }
+        document.getElementById('assist-picker').style.display = 'none';
+    }
+
+    skipAssist() {
+        if (this.pendingGoal) {
+            this.finalizeGoal(this.pendingGoal.scorerId, null, this.pendingGoal.team);
+            this.pendingGoal = null;
+        }
+        document.getElementById('assist-picker').style.display = 'none';
+    }
+
+    finalizeGoal(playerId, assistPlayerId, team) {
         if (team === 'us') {
             this.state.scoreUs++;
         } else {
@@ -280,6 +332,7 @@ class TeamSelector {
         
         this.state.goalHistory.push({
             playerId: playerId,
+            assistPlayerId: assistPlayerId,
             time: this.state.elapsedSeconds,
             team: team
         });
@@ -294,12 +347,23 @@ class TeamSelector {
             }
         }
 
+        // Track assist for player
+        let assistName = null;
+        if (assistPlayerId) {
+            const assister = this.getPlayerById(assistPlayerId);
+            if (assister) {
+                assister.assists = (assister.assists || 0) + 1;
+                assistName = assister.name;
+            }
+        }
+
         // Add to match events
         this.state.matchEvents.push({
             type: 'goal',
             time: this.state.elapsedSeconds,
             team: team,
             scorer: scorerName,
+            assist: assistName,
             score: `${this.state.scoreUs} - ${this.state.scoreThem}`
         });
 
@@ -324,6 +388,14 @@ class TeamSelector {
             const player = this.getPlayerById(lastGoal.playerId);
             if (player && player.goals > 0) {
                 player.goals--;
+            }
+        }
+
+        // Remove assist from player
+        if (lastGoal.assistPlayerId) {
+            const assister = this.getPlayerById(lastGoal.assistPlayerId);
+            if (assister && assister.assists > 0) {
+                assister.assists--;
             }
         }
 
@@ -1108,6 +1180,24 @@ class TeamSelector {
         return Math.round(totalIntervals * intervalDuration);
     }
 
+    getIntervalChanges() {
+        const changes = [];
+        for (let i = 2; i <= this.settings.intervalCount; i++) {
+            const prev = this.state.intervalLineups[i - 1] || [];
+            const curr = this.state.intervalLineups[i] || [];
+            
+            const off = prev.filter(id => id && !curr.includes(id))
+                .map(id => this.getPlayerById(id)).filter(p => p);
+            const on = curr.filter(id => id && !prev.includes(id))
+                .map(id => this.getPlayerById(id)).filter(p => p);
+            
+            if (off.length || on.length) {
+                changes.push({ interval: i, off, on });
+            }
+        }
+        return changes;
+    }
+
     renderStats() {
         const statsTable = document.getElementById('stats-table');
         const statsHeading = document.getElementById('stats-heading');
@@ -1116,6 +1206,28 @@ class TeamSelector {
         // Update heading based on mode
         if (statsHeading) {
             statsHeading.textContent = this.state.mode === 'plan' ? '📊 Planned Minutes' : '📊 Player Minutes';
+        }
+
+        // Render substitution summary (Plan mode only)
+        const subsSummary = document.getElementById('subs-summary');
+        if (subsSummary) {
+            if (this.state.mode === 'plan') {
+                const changes = this.getIntervalChanges();
+                if (changes.length === 0) {
+                    subsSummary.innerHTML = '<div class="no-subs">No substitutions planned</div>';
+                } else {
+                    subsSummary.innerHTML = changes.map(c => `
+                        <div class="sub-change">
+                            <span class="sub-interval">Int ${c.interval}:</span>
+                            ${c.on.map(p => `<span class="sub-on">↑ ${p.name}</span>`).join('')}
+                            ${c.off.map(p => `<span class="sub-off">↓ ${p.name}</span>`).join('')}
+                        </div>
+                    `).join('');
+                }
+                subsSummary.style.display = 'block';
+            } else {
+                subsSummary.style.display = 'none';
+            }
         }
 
         const intervalDuration = this.settings.matchDuration / this.settings.intervalCount;
@@ -1189,11 +1301,12 @@ class TeamSelector {
             
             if (event.type === 'goal') {
                 const icon = event.team === 'us' ? '⚽' : '🔴';
+                const assistText = event.assist ? ` (assist: ${event.assist})` : '';
                 eventDiv.innerHTML = `
                     <span class="event-time">${timeStr}</span>
                     <span class="event-icon">${icon}</span>
                     <span class="event-detail">
-                        <strong>GOAL</strong> - ${event.scorer}
+                        <strong>GOAL</strong> - ${event.scorer}${assistText}
                         <span class="event-score">${event.score}</span>
                     </span>
                 `;
