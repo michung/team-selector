@@ -1,34 +1,49 @@
 // Team Selector App - 9-a-side Football Team Management (3-4-1 Formation)
 
+// Configuration constants
+const CONFIG = {
+    STORAGE_KEY: 'teamSelectorState',
+    LONG_PRESS_MS: 1000,
+    DRAG_THRESHOLD: 10,
+    SCORING_ANIMATION_MS: 500,
+    SLOTS_COUNT: 9,
+    SPEEDS: [1, 5, 10],
+    HAPTIC_PATTERNS: {
+        GOAL_US: [100, 50, 100],
+        GOAL_THEM: 100
+    },
+    INTERVAL_LIMITS: { MIN: 1, MAX: 6 },
+    DEFAULT_MATCH_DURATION: 60
+};
+
+// Default state template
+const DEFAULT_STATE = {
+    mode: 'plan',
+    isRunning: false,
+    elapsedSeconds: 0,
+    currentInterval: 1,
+    selectedPlanInterval: 1,
+    players: [],
+    intervalLineups: {},
+    lastIntervalTime: 0,
+    scoreUs: 0,
+    scoreThem: 0,
+    goalHistory: [],
+    matchEvents: [],
+    speedMultiplier: 1
+};
+
+const DEFAULT_SETTINGS = {
+    matchDuration: CONFIG.DEFAULT_MATCH_DURATION,
+    intervalCount: 4,
+    playersOnPitch: CONFIG.SLOTS_COUNT
+};
+
 class TeamSelector {
     constructor() {
-        // Default settings
-        this.settings = {
-            matchDuration: 60, // minutes
-            intervalCount: 4,
-            playersOnPitch: 9
-        };
-
-        // Game state
-        this.state = {
-            mode: 'plan', // 'plan' or 'live'
-            isRunning: false,
-            elapsedSeconds: 0,
-            currentInterval: 1,
-            selectedPlanInterval: 1,
-            players: [],
-            // Store lineups for each interval: { 1: [player IDs], 2: [...], etc }
-            intervalLineups: {},
-            lastIntervalTime: 0,
-            // Score tracking
-            scoreUs: 0,
-            scoreThem: 0,
-            goalHistory: [], // Array of { playerId, time, team: 'us'|'them' }
-            // Match events log
-            matchEvents: [], // Array of { type: 'goal'|'sub', time, details }
-            // Testing
-            speedMultiplier: 1 // 1x, 5x, or 10x for testing
-        };
+        // Initialize with defaults (will be overwritten by loadState if saved data exists)
+        this.settings = { ...DEFAULT_SETTINGS };
+        this.state = { ...DEFAULT_STATE };
 
         // Drag state
         this.dragState = {
@@ -49,13 +64,19 @@ class TeamSelector {
         // Timer
         this.timerInterval = null;
 
+        // Cached DOM elements (populated in init)
+        this.elements = {};
+
         this.init();
     }
 
     init() {
+        // Cache DOM elements for performance
+        this.cacheElements();
+        
         // Dev mode: clear localStorage if ?clear is in URL
         if (window.location.search.includes('clear')) {
-            localStorage.removeItem('teamSelectorState');
+            localStorage.removeItem(CONFIG.STORAGE_KEY);
             // Remove ?clear from URL without reload
             history.replaceState(null, '', window.location.pathname + window.location.hash);
         }
@@ -63,7 +84,7 @@ class TeamSelector {
         // If shared plan in URL, clear localStorage first so it takes precedence
         const hash = window.location.hash.slice(1);
         if (hash && hash.includes('p=') && hash.includes('l=')) {
-            localStorage.removeItem('teamSelectorState');
+            localStorage.removeItem(CONFIG.STORAGE_KEY);
         }
         
         this.loadState();
@@ -77,22 +98,63 @@ class TeamSelector {
         this.render();
     }
 
+    cacheElements() {
+        this.elements = {
+            bench: document.getElementById('bench'),
+            statsTable: document.getElementById('stats-table'),
+            statsHeading: document.getElementById('stats-heading'),
+            subsSummary: document.getElementById('subs-summary'),
+            eventsLog: document.getElementById('events-log'),
+            scoreUs: document.getElementById('score-us'),
+            scoreThem: document.getElementById('score-them'),
+            currentTime: document.getElementById('current-time'),
+            intervalTabs: document.getElementById('interval-tabs'),
+            copyPrevBtn: document.getElementById('copy-prev-btn'),
+            startBtn: document.getElementById('start-btn'),
+            pauseBtn: document.getElementById('pause-btn'),
+            planControls: document.getElementById('plan-controls'),
+            liveControls: document.getElementById('live-controls'),
+            sharePlanBtn: document.getElementById('share-plan-btn'),
+            timerButtons: document.getElementById('timer-buttons'),
+            statsSection: document.getElementById('stats-section'),
+            eventsSection: document.getElementById('events-section'),
+            settingsContent: document.getElementById('settings-content'),
+            squadContent: document.getElementById('squad-content'),
+            matchDuration: document.getElementById('match-duration'),
+            intervalCount: document.getElementById('interval-count'),
+            assistPicker: document.getElementById('assist-picker'),
+            assistOptions: document.getElementById('assist-options'),
+            liveHintOverlay: document.getElementById('live-hint-overlay'),
+            rosterList: document.getElementById('roster-list'),
+            newPlayerName: document.getElementById('new-player-name')
+        };
+    }
+
     // ==================== STATE MANAGEMENT ====================
 
     loadState() {
-        const saved = localStorage.getItem('teamSelectorState');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            this.settings = { ...this.settings, ...parsed.settings };
-            this.state = { ...this.state, ...parsed.state };
+        try {
+            const saved = localStorage.getItem(CONFIG.STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Deep merge with defaults to handle missing properties
+                this.settings = { ...DEFAULT_SETTINGS, ...parsed.settings };
+                this.state = { 
+                    ...DEFAULT_STATE, 
+                    ...parsed.state,
+                    // Ensure arrays are never undefined
+                    players: parsed.state?.players || [],
+                    goalHistory: parsed.state?.goalHistory || [],
+                    matchEvents: parsed.state?.matchEvents || [],
+                    intervalLineups: parsed.state?.intervalLineups || {}
+                };
+            }
+        } catch (e) {
+            console.warn('Failed to load saved state, using defaults:', e);
+            localStorage.removeItem(CONFIG.STORAGE_KEY);
+            this.settings = { ...DEFAULT_SETTINGS };
+            this.state = { ...DEFAULT_STATE };
         }
-
-        // Ensure new state properties have default values
-        if (!this.state.speedMultiplier) this.state.speedMultiplier = 1;
-        if (!this.state.scoreUs) this.state.scoreUs = 0;
-        if (!this.state.scoreThem) this.state.scoreThem = 0;
-        if (!this.state.goalHistory) this.state.goalHistory = [];
-        if (!this.state.matchEvents) this.state.matchEvents = [];
 
         // Load sample players if none exist
         if (this.state.players.length === 0) {
@@ -101,10 +163,14 @@ class TeamSelector {
     }
 
     saveState() {
-        localStorage.setItem('teamSelectorState', JSON.stringify({
-            settings: this.settings,
-            state: this.state
-        }));
+        try {
+            localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify({
+                settings: this.settings,
+                state: this.state
+            }));
+        } catch (e) {
+            console.warn('Failed to save state:', e);
+        }
     }
 
     initializeIntervalLineups() {
@@ -219,44 +285,42 @@ class TeamSelector {
 
         // Settings toggle
         document.getElementById('toggle-settings').addEventListener('click', () => {
-            const content = document.getElementById('settings-content');
-            const isVisible = content.style.display !== 'none';
-            content.style.display = isVisible ? 'none' : 'block';
+            const isVisible = this.elements.settingsContent.style.display !== 'none';
+            this.elements.settingsContent.style.display = isVisible ? 'none' : 'block';
             // Close squad if opening settings
-            if (!isVisible) document.getElementById('squad-content').style.display = 'none';
+            if (!isVisible) this.elements.squadContent.style.display = 'none';
         });
 
         // Squad toggle
         document.getElementById('toggle-squad').addEventListener('click', () => {
-            const content = document.getElementById('squad-content');
-            const isVisible = content.style.display !== 'none';
-            content.style.display = isVisible ? 'none' : 'block';
+            const isVisible = this.elements.squadContent.style.display !== 'none';
+            this.elements.squadContent.style.display = isVisible ? 'none' : 'block';
             // Close settings if opening squad
-            if (!isVisible) document.getElementById('settings-content').style.display = 'none';
+            if (!isVisible) this.elements.settingsContent.style.display = 'none';
         });
 
         // Settings inputs
-        document.getElementById('match-duration').addEventListener('change', (e) => {
-            this.settings.matchDuration = parseInt(e.target.value) || 60;
+        this.elements.matchDuration.addEventListener('change', (e) => {
+            this.settings.matchDuration = parseInt(e.target.value) || CONFIG.DEFAULT_MATCH_DURATION;
             this.updateIntervalDisplay();
             this.saveState();
         });
 
         // Interval count (Plan mode) - stepper buttons
         document.getElementById('interval-dec').addEventListener('click', () => {
-            const newCount = Math.max(1, this.settings.intervalCount - 1);
+            const newCount = Math.max(CONFIG.INTERVAL_LIMITS.MIN, this.settings.intervalCount - 1);
             this.updateIntervalCount(newCount);
-            document.getElementById('interval-count').textContent = newCount;
+            this.elements.intervalCount.textContent = newCount;
         });
         document.getElementById('interval-inc').addEventListener('click', () => {
-            const newCount = Math.min(6, this.settings.intervalCount + 1);
+            const newCount = Math.min(CONFIG.INTERVAL_LIMITS.MAX, this.settings.intervalCount + 1);
             this.updateIntervalCount(newCount);
-            document.getElementById('interval-count').textContent = newCount;
+            this.elements.intervalCount.textContent = newCount;
         });
 
         // Timer controls
-        document.getElementById('start-btn').addEventListener('click', () => this.startTimer());
-        document.getElementById('pause-btn').addEventListener('click', () => this.pauseTimer());
+        this.elements.startBtn.addEventListener('click', () => this.startTimer());
+        this.elements.pauseBtn.addEventListener('click', () => this.pauseTimer());
         document.getElementById('reset-match').addEventListener('click', () => this.resetMatch());
 
         // Score controls - tap Them score to increment
@@ -273,14 +337,14 @@ class TeamSelector {
         });
 
         // Share plan button
-        document.getElementById('share-plan-btn').addEventListener('click', () => this.sharePlan());
+        this.elements.sharePlanBtn.addEventListener('click', () => this.sharePlan());
 
         // Copy from previous interval button
-        document.getElementById('copy-prev-btn').addEventListener('click', () => this.copyFromPreviousInterval());
+        this.elements.copyPrevBtn.addEventListener('click', () => this.copyFromPreviousInterval());
 
         // Set initial values
-        document.getElementById('match-duration').value = this.settings.matchDuration;
-        document.getElementById('interval-count').textContent = this.settings.intervalCount;
+        this.elements.matchDuration.value = this.settings.matchDuration;
+        this.elements.intervalCount.textContent = this.settings.intervalCount;
     }
 
     // ==================== SCORE TRACKING ====================
@@ -318,7 +382,12 @@ class TeamSelector {
             optionsContainer.appendChild(btn);
         });
         
+        // Disable pointer events briefly to prevent accidental selection on finger lift
+        overlay.style.pointerEvents = 'none';
         overlay.style.display = 'flex';
+        setTimeout(() => {
+            overlay.style.pointerEvents = 'auto';
+        }, 300);
     }
 
     selectAssist(assistPlayerId) {
@@ -334,7 +403,23 @@ class TeamSelector {
             this.finalizeGoal(this.pendingGoal.scorerId, null, this.pendingGoal.team);
             this.pendingGoal = null;
         }
-        document.getElementById('assist-picker').style.display = 'none';
+        this.elements.assistPicker.style.display = 'none';
+    }
+
+    // Helper: Trigger haptic feedback for goals
+    triggerGoalHaptic(team) {
+        if ('vibrate' in navigator) {
+            const pattern = team === 'us' 
+                ? CONFIG.HAPTIC_PATTERNS.GOAL_US 
+                : CONFIG.HAPTIC_PATTERNS.GOAL_THEM;
+            navigator.vibrate(pattern);
+        }
+    }
+
+    // Helper: Show scoring animation on element
+    showScoringAnimation(element) {
+        element.classList.add('scoring');
+        setTimeout(() => element.classList.remove('scoring'), CONFIG.SCORING_ANIMATION_MS);
     }
 
     finalizeGoal(playerId, assistPlayerId, team) {
@@ -344,14 +429,7 @@ class TeamSelector {
             this.state.scoreThem++;
         }
         
-        // Haptic feedback for goals
-        if ('vibrate' in navigator) {
-            if (team === 'us') {
-                navigator.vibrate([100, 50, 100]); // Double pulse for our goal
-            } else {
-                navigator.vibrate(100); // Single pulse for opponent goal
-            }
-        }
+        this.triggerGoalHaptic(team);
         
         this.state.goalHistory.push({
             playerId: playerId,
@@ -436,16 +514,15 @@ class TeamSelector {
     }
 
     updateScoreDisplay() {
-        document.getElementById('score-us').textContent = this.state.scoreUs;
-        document.getElementById('score-them').textContent = this.state.scoreThem;
+        this.elements.scoreUs.textContent = this.state.scoreUs;
+        this.elements.scoreThem.textContent = this.state.scoreThem;
     }
 
     // ==================== TIMER FUNCTIONS ====================
 
     toggleSpeed() {
-        const speeds = [1, 5, 10];
-        const currentIndex = speeds.indexOf(this.state.speedMultiplier);
-        this.state.speedMultiplier = speeds[(currentIndex + 1) % speeds.length];
+        const currentIndex = CONFIG.SPEEDS.indexOf(this.state.speedMultiplier);
+        this.state.speedMultiplier = CONFIG.SPEEDS[(currentIndex + 1) % CONFIG.SPEEDS.length];
         
         // Restart timer with new speed if running
         if (this.state.isRunning) {
@@ -472,8 +549,8 @@ class TeamSelector {
         if (this.state.isRunning) return;
 
         this.state.isRunning = true;
-        document.getElementById('start-btn').disabled = true;
-        document.getElementById('pause-btn').disabled = false;
+        this.elements.startBtn.disabled = true;
+        this.elements.pauseBtn.disabled = false;
 
         this.startTimerInterval();
     }
@@ -482,8 +559,8 @@ class TeamSelector {
         if (!this.state.isRunning) return;
 
         this.state.isRunning = false;
-        document.getElementById('start-btn').disabled = false;
-        document.getElementById('pause-btn').disabled = true;
+        this.elements.startBtn.disabled = false;
+        this.elements.pauseBtn.disabled = true;
 
         clearInterval(this.timerInterval);
         this.saveState();
@@ -497,21 +574,20 @@ class TeamSelector {
         // Update UI
         document.getElementById('plan-mode-btn').classList.toggle('active', mode === 'plan');
         document.getElementById('live-mode-btn').classList.toggle('active', mode === 'live');
-        document.getElementById('plan-controls').style.display = mode === 'plan' ? 'block' : 'none';
-        document.getElementById('live-controls').style.display = mode === 'live' ? 'block' : 'none';
-        document.getElementById('share-plan-btn').style.display = mode === 'plan' ? 'inline-block' : 'none';
-        document.getElementById('timer-buttons').style.display = mode === 'live' ? 'flex' : 'none';
+        this.elements.planControls.style.display = mode === 'plan' ? 'block' : 'none';
+        this.elements.liveControls.style.display = mode === 'live' ? 'block' : 'none';
+        this.elements.sharePlanBtn.style.display = mode === 'plan' ? 'inline-block' : 'none';
+        this.elements.timerButtons.style.display = mode === 'live' ? 'flex' : 'none';
         
         // Show live hint overlay when switching to live mode
         if (mode === 'live') {
-            const overlay = document.getElementById('live-hint-overlay');
-            overlay.classList.remove('hidden');
-            setTimeout(() => overlay.classList.add('hidden'), 3000);
+            this.elements.liveHintOverlay.classList.remove('hidden');
+            setTimeout(() => this.elements.liveHintOverlay.classList.add('hidden'), 3000);
         }
         
         // Toggle stats vs events section
-        document.getElementById('stats-section').style.display = mode === 'plan' ? 'block' : 'none';
-        document.getElementById('events-section').style.display = mode === 'live' ? 'block' : 'none';
+        this.elements.statsSection.style.display = mode === 'plan' ? 'block' : 'none';
+        this.elements.eventsSection.style.display = mode === 'live' ? 'block' : 'none';
         
         this.renderPitch();
         this.renderBench();
@@ -546,7 +622,7 @@ class TeamSelector {
         const seconds = this.state.elapsedSeconds % 60;
         const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         const speedStr = this.state.speedMultiplier > 1 ? ` (${this.state.speedMultiplier}x)` : '';
-        document.getElementById('current-time').textContent = timeStr + speedStr;
+        this.elements.currentTime.textContent = timeStr + speedStr;
     }
 
     updateIntervalDisplay() {
@@ -623,8 +699,7 @@ class TeamSelector {
     // ==================== PLAYER MANAGEMENT ====================
 
     addPlayer() {
-        const input = document.getElementById('new-player-name');
-        const name = input.value.trim();
+        const name = this.elements.newPlayerName.value.trim();
 
         if (!name) return;
 
@@ -638,7 +713,7 @@ class TeamSelector {
             minutesPlayed: 0
         });
 
-        input.value = '';
+        this.elements.newPlayerName.value = '';
         this.saveState();
         this.renderRoster();
         this.renderBench();
@@ -697,22 +772,68 @@ class TeamSelector {
 
     // ==================== DRAG AND DROP ====================
 
+    // Helper: Handle player tap action (click/tap without drag)
+    handlePlayerTap(playerId, location, slotIndex) {
+        if (location === 'pitch') {
+            this.removePlayerFromPitch(slotIndex);
+        } else if (location === 'bench') {
+            this.addBenchPlayerToPitch(playerId);
+        }
+    }
+
+    // Helper: Create drag preview element
+    createDragPreview(playerId) {
+        const dragPreview = document.createElement('div');
+        dragPreview.className = 'drag-preview';
+        const player = this.getPlayerById(playerId);
+        dragPreview.textContent = player ? player.name : '';
+        document.body.appendChild(dragPreview);
+        return dragPreview;
+    }
+
+    // Helper: Handle touch end drop detection
+    handleTouchDrop(touch, element) {
+        element.style.display = 'none';
+        const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
+        element.style.display = '';
+        
+        if (!targetElement) return;
+        
+        const targetSlot = targetElement.closest('.player-slot');
+        const targetBench = targetElement.closest('.bench');
+        const targetCard = targetElement.closest('.player-card');
+        
+        if (targetSlot) {
+            this.handleDrop(parseInt(targetSlot.dataset.slot), 'pitch');
+        } else if (targetBench) {
+            this.handleDrop(null, 'bench');
+        } else if (targetCard) {
+            const parentSlot = targetCard.closest('.player-slot');
+            if (parentSlot) {
+                this.handleDrop(parseInt(parentSlot.dataset.slot), 'pitch');
+            }
+        }
+    }
+
     setupDragForPlayer(element, playerId, location, slotIndex = null) {
         let isDragging = false;
         let startX, startY;
-        const dragThreshold = 10;
         let longPressTimer = null;
-        const longPressDuration = 1000; // ms to trigger goal
+        let touchMoved = false;
+        let longPressTriggered = false;
 
         // Long press handler for goals (only in live mode, only on pitch)
+        const triggerGoal = () => {
+            this.recordGoal(playerId, 'us');
+            this.showScoringAnimation(element);
+        };
+
         const startLongPress = () => {
             if (this.state.mode !== 'live' || location !== 'pitch') return;
             longPressTimer = setTimeout(() => {
-                this.recordGoal(playerId, 'us');
-                element.classList.add('scoring');
-                setTimeout(() => element.classList.remove('scoring'), 500);
+                triggerGoal();
                 longPressTimer = null;
-            }, longPressDuration);
+            }, CONFIG.LONG_PRESS_MS);
         };
 
         const cancelLongPress = () => {
@@ -737,11 +858,7 @@ class TeamSelector {
             element.classList.add('dragging');
             
             // Create custom drag image
-            const dragPreview = document.createElement('div');
-            dragPreview.className = 'drag-preview';
-            const player = this.getPlayerById(playerId);
-            dragPreview.textContent = player ? player.name : '';
-            document.body.appendChild(dragPreview);
+            const dragPreview = this.createDragPreview(playerId);
             e.dataTransfer.setDragImage(dragPreview, 40, 20);
             setTimeout(() => dragPreview.remove(), 0);
         });
@@ -754,19 +871,12 @@ class TeamSelector {
 
         // Click to remove from pitch OR add bench player to pitch
         element.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent triggering slot click
-            if (isDragging) return;
-            if (location === 'pitch') {
-                this.removePlayerFromPitch(slotIndex);
-            } else if (location === 'bench') {
-                this.addBenchPlayerToPitch(playerId);
-            }
+            e.stopPropagation();
+            if (isDragging || longPressTriggered) return;
+            this.handlePlayerTap(playerId, location, slotIndex);
         });
 
         // Touch events for mobile
-        let touchMoved = false;
-        let longPressTriggered = false;
-        
         element.addEventListener('touchstart', (e) => {
             touchMoved = false;
             longPressTriggered = false;
@@ -778,10 +888,8 @@ class TeamSelector {
             if (this.state.mode === 'live' && location === 'pitch') {
                 longPressTimer = setTimeout(() => {
                     longPressTriggered = true;
-                    this.recordGoal(playerId, 'us');
-                    element.classList.add('scoring');
-                    setTimeout(() => element.classList.remove('scoring'), 500);
-                }, longPressDuration);
+                    triggerGoal();
+                }, CONFIG.LONG_PRESS_MS);
             }
         }, { passive: true });
 
@@ -790,7 +898,7 @@ class TeamSelector {
             const dx = Math.abs(touch.clientX - startX);
             const dy = Math.abs(touch.clientY - startY);
             
-            if (dx > dragThreshold || dy > dragThreshold) {
+            if (dx > CONFIG.DRAG_THRESHOLD || dy > CONFIG.DRAG_THRESHOLD) {
                 touchMoved = true;
                 cancelLongPress();
                 e.preventDefault();
@@ -804,46 +912,19 @@ class TeamSelector {
             element.classList.remove('dragging');
             
             if (longPressTriggered) {
-                // Goal was recorded, don't do anything else
+                // Prevent synthetic click event from firing
+                e.preventDefault();
+                longPressTriggered = false;
                 this.endDrag();
                 return;
             }
             
             if (touchMoved) {
-                const touch = e.changedTouches[0];
-                // Hide the dragging element to find what's underneath
-                element.style.display = 'none';
-                const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
-                element.style.display = '';
-                
-                if (targetElement) {
-                    const targetSlot = targetElement.closest('.player-slot');
-                    const targetBench = targetElement.closest('.bench');
-                    const targetCard = targetElement.closest('.player-card');
-                    
-                    if (targetSlot) {
-                        const targetSlotIndex = parseInt(targetSlot.dataset.slot);
-                        this.handleDrop(targetSlotIndex, 'pitch');
-                    } else if (targetBench) {
-                        this.handleDrop(null, 'bench');
-                    } else if (targetCard) {
-                        // Dropped on another player card - find its slot
-                        const parentSlot = targetCard.closest('.player-slot');
-                        if (parentSlot) {
-                            const targetSlotIndex = parseInt(parentSlot.dataset.slot);
-                            this.handleDrop(targetSlotIndex, 'pitch');
-                        }
-                    }
-                }
+                this.handleTouchDrop(e.changedTouches[0], element);
                 this.clearAllDragOverStates();
             } else {
-                // Tap - remove from pitch or add bench player to pitch
                 e.stopPropagation();
-                if (location === 'pitch') {
-                    this.removePlayerFromPitch(slotIndex);
-                } else if (location === 'bench') {
-                    this.addBenchPlayerToPitch(playerId);
-                }
+                this.handlePlayerTap(playerId, location, slotIndex);
             }
             this.endDrag();
         });
@@ -1045,6 +1126,7 @@ class TeamSelector {
         this.setCurrentLineup(lineup);
         this.renderPitch();
         this.renderBench();
+        this.renderStats();
     }
 
     handleDropOnBenchPlayer(benchPlayerId) {
@@ -1077,6 +1159,7 @@ class TeamSelector {
         this.setCurrentLineup(lineup);
         this.renderPitch();
         this.renderBench();
+        this.renderStats();
     }
 
     // ==================== RENDERING ====================
@@ -1094,20 +1177,18 @@ class TeamSelector {
     }
 
     renderIntervalTabs() {
-        const container = document.getElementById('interval-tabs');
-        container.innerHTML = '';
+        this.elements.intervalTabs.innerHTML = '';
         
         for (let i = 1; i <= this.settings.intervalCount; i++) {
             const tab = document.createElement('button');
             tab.className = 'interval-tab' + (i === this.state.selectedPlanInterval ? ' active' : '');
             tab.textContent = `${i}`;
             tab.addEventListener('click', () => this.selectPlanInterval(i));
-            container.appendChild(tab);
+            this.elements.intervalTabs.appendChild(tab);
         }
 
         // Show/hide copy previous button
-        const copyBtn = document.getElementById('copy-prev-btn');
-        copyBtn.style.display = this.state.selectedPlanInterval > 1 ? 'inline-block' : 'none';
+        this.elements.copyPrevBtn.style.display = this.state.selectedPlanInterval > 1 ? 'inline-block' : 'none';
     }
 
     renderPitch() {
@@ -1133,14 +1214,13 @@ class TeamSelector {
     }
 
     renderBench() {
-        const bench = document.getElementById('bench');
-        bench.innerHTML = '';
+        this.elements.bench.innerHTML = '';
         
         const benchPlayers = this.getBenchPlayers();
         
         benchPlayers.forEach(player => {
             const playerCard = this.createPlayerCard(player, 'bench');
-            bench.appendChild(playerCard);
+            this.elements.bench.appendChild(playerCard);
         });
     }
 
@@ -1154,8 +1234,7 @@ class TeamSelector {
         });
 
         // Setup bench as drop zone
-        const bench = document.getElementById('bench');
-        this.setupDropZone(bench, 'bench');
+        this.setupDropZone(this.elements.bench, 'bench');
     }
 
     createPlayerCard(player, location, slotIndex = null) {
@@ -1246,34 +1325,31 @@ class TeamSelector {
     }
 
     renderStats() {
-        const statsTable = document.getElementById('stats-table');
-        const statsHeading = document.getElementById('stats-heading');
-        statsTable.innerHTML = '';
+        this.elements.statsTable.innerHTML = '';
         
         // Update heading based on mode
-        if (statsHeading) {
-            statsHeading.textContent = this.state.mode === 'plan' ? '📊 Planned Minutes' : '📊 Player Minutes';
+        if (this.elements.statsHeading) {
+            this.elements.statsHeading.textContent = this.state.mode === 'plan' ? '📊 Planned Minutes' : '📊 Player Minutes';
         }
 
         // Render substitution summary (Plan mode only)
-        const subsSummary = document.getElementById('subs-summary');
-        if (subsSummary) {
+        if (this.elements.subsSummary) {
             if (this.state.mode === 'plan') {
                 const changes = this.getIntervalChanges();
                 if (changes.length === 0) {
-                    subsSummary.innerHTML = '<div class="no-subs">No substitutions planned</div>';
+                    this.elements.subsSummary.innerHTML = '<div class="no-subs">No substitutions planned</div>';
                 } else {
-                    subsSummary.innerHTML = changes.map(c => `
+                    this.elements.subsSummary.innerHTML = changes.map(c => `
                         <div class="sub-change">
-                            <span class="sub-interval">Int ${c.interval}:</span>
+                            <span class="sub-interval">${c.interval}:</span>
                             ${c.on.map(p => `<span class="sub-on">↑ ${p.name}</span>`).join('')}
                             ${c.off.map(p => `<span class="sub-off">↓ ${p.name}</span>`).join('')}
                         </div>
                     `).join('');
                 }
-                subsSummary.style.display = 'block';
+                this.elements.subsSummary.style.display = 'block';
             } else {
-                subsSummary.style.display = 'none';
+                this.elements.subsSummary.style.display = 'none';
             }
         }
 
@@ -1321,18 +1397,17 @@ class TeamSelector {
                 </div>
             `;
             
-            statsTable.appendChild(row);
+            this.elements.statsTable.appendChild(row);
         });
     }
 
     renderMatchEvents() {
-        const eventsLog = document.getElementById('events-log');
-        if (!eventsLog) return;
+        if (!this.elements.eventsLog) return;
         
-        eventsLog.innerHTML = '';
+        this.elements.eventsLog.innerHTML = '';
         
         if (this.state.matchEvents.length === 0) {
-            eventsLog.innerHTML = '<div class="no-events">No match events yet</div>';
+            this.elements.eventsLog.innerHTML = '<div class="no-events">No match events yet</div>';
             return;
         }
         
@@ -1377,7 +1452,7 @@ class TeamSelector {
                 deleteBtn.addEventListener('click', () => this.deleteMatchEvent(originalIndex));
             }
             
-            eventsLog.appendChild(eventDiv);
+            this.elements.eventsLog.appendChild(eventDiv);
         });
     }
 
@@ -1441,8 +1516,7 @@ class TeamSelector {
     }
 
     renderRoster() {
-        const rosterList = document.getElementById('roster-list');
-        rosterList.innerHTML = '';
+        this.elements.rosterList.innerHTML = '';
 
         this.state.players.forEach(player => {
             const item = document.createElement('div');
@@ -1462,7 +1536,7 @@ class TeamSelector {
                 }
             });
             
-            rosterList.appendChild(item);
+            this.elements.rosterList.appendChild(item);
         });
     }
 
