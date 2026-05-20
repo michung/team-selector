@@ -53,6 +53,10 @@ class TeamSelector {
 
     init() {
         this.loadState();
+        // Check for shared plan in URL (overrides saved state)
+        if (window.location.hash) {
+            this.loadFromUrl();
+        }
         this.initializeIntervalLineups();
         this.setupEventListeners();
         this.setupDropZones(); // Setup drop zones once
@@ -108,6 +112,40 @@ class TeamSelector {
             }
         }
         this.saveState();
+    }
+
+    updateIntervalCount(newCount) {
+        const oldCount = this.settings.intervalCount;
+        this.settings.intervalCount = newCount;
+
+        // Add new intervals (copy from last existing)
+        if (newCount > oldCount) {
+            const lastLineup = this.state.intervalLineups[oldCount] || Array(9).fill(null);
+            for (let i = oldCount + 1; i <= newCount; i++) {
+                this.state.intervalLineups[i] = [...lastLineup];
+            }
+        }
+
+        // Remove excess intervals
+        if (newCount < oldCount) {
+            for (let i = newCount + 1; i <= oldCount; i++) {
+                delete this.state.intervalLineups[i];
+            }
+        }
+
+        // Adjust selected interval if out of range
+        if (this.state.selectedPlanInterval > newCount) {
+            this.state.selectedPlanInterval = newCount;
+        }
+        if (this.state.currentInterval > newCount) {
+            this.state.currentInterval = newCount;
+        }
+
+        this.saveState();
+        this.renderIntervalTabs();
+        this.renderPitch();
+        this.renderBench();
+        this.renderStats();
     }
 
     loadSamplePlayers() {
@@ -177,6 +215,13 @@ class TeamSelector {
             this.saveState();
         });
 
+        // Interval count (Plan mode)
+        document.getElementById('interval-count').addEventListener('change', (e) => {
+            const newCount = Math.max(1, Math.min(10, parseInt(e.target.value) || 4));
+            e.target.value = newCount;
+            this.updateIntervalCount(newCount);
+        });
+
         // Timer controls
         document.getElementById('start-btn').addEventListener('click', () => this.startTimer());
         document.getElementById('pause-btn').addEventListener('click', () => this.pauseTimer());
@@ -200,8 +245,15 @@ class TeamSelector {
             document.getElementById('roster-section').classList.toggle('expanded');
         });
 
+        // Share plan button
+        document.getElementById('share-plan-btn').addEventListener('click', () => this.sharePlan());
+
+        // Copy from previous interval button
+        document.getElementById('copy-prev-btn').addEventListener('click', () => this.copyFromPreviousInterval());
+
         // Set initial values
         document.getElementById('match-duration').value = this.settings.matchDuration;
+        document.getElementById('interval-count').value = this.settings.intervalCount;
     }
 
     // ==================== SCORE TRACKING ====================
@@ -919,6 +971,10 @@ class TeamSelector {
             tab.addEventListener('click', () => this.selectPlanInterval(i));
             container.appendChild(tab);
         }
+
+        // Show/hide copy previous button
+        const copyBtn = document.getElementById('copy-prev-btn');
+        copyBtn.style.display = this.state.selectedPlanInterval > 1 ? 'inline-block' : 'none';
     }
 
     renderPitch() {
@@ -1177,6 +1233,128 @@ class TeamSelector {
             
             rosterList.appendChild(item);
         });
+    }
+
+    // ==================== SHARING ====================
+
+    encodePlan() {
+        // Compact format: p=name1,name2|n=num1,num2|l=lineup1;lineup2|d=duration|i=intervals
+        // Players: names joined by comma
+        // Numbers: player numbers joined by comma
+        // Lineups: each interval's player indices (into player array) joined by comma, intervals separated by semicolon
+        
+        const players = this.state.players;
+        const names = players.map(p => encodeURIComponent(p.name)).join(',');
+        const numbers = players.map(p => p.number).join(',');
+        
+        // Build lineups using player array index (not player ID)
+        const lineups = [];
+        for (let i = 1; i <= this.settings.intervalCount; i++) {
+            const lineup = this.state.intervalLineups[i] || [];
+            // Convert player IDs to array indices
+            const indices = lineup.map(playerId => {
+                if (playerId === null) return '-';
+                const idx = players.findIndex(p => p.id === playerId);
+                return idx >= 0 ? idx : '-';
+            });
+            lineups.push(indices.join(','));
+        }
+        
+        const parts = [
+            `p=${names}`,
+            `n=${numbers}`,
+            `l=${lineups.join(';')}`,
+            `d=${this.settings.matchDuration}`,
+            `i=${this.settings.intervalCount}`
+        ];
+        
+        return parts.join('|');
+    }
+
+    decodePlan(hash) {
+        try {
+            const params = {};
+            hash.split('|').forEach(part => {
+                const [key, value] = part.split('=');
+                params[key] = value;
+            });
+            
+            if (!params.p || !params.l) return null;
+            
+            // Decode players
+            const names = params.p.split(',').map(n => decodeURIComponent(n));
+            const numbers = params.n ? params.n.split(',').map(n => parseInt(n)) : names.map((_, i) => i + 1);
+            
+            const players = names.map((name, idx) => ({
+                id: idx + 1,
+                name: name,
+                number: numbers[idx] || idx + 1,
+                minutesPlayed: 0
+            }));
+            
+            // Decode settings
+            const matchDuration = parseInt(params.d) || 60;
+            const intervalCount = parseInt(params.i) || 4;
+            
+            // Decode lineups
+            const intervalLineups = {};
+            const lineupStrs = params.l.split(';');
+            lineupStrs.forEach((lineupStr, intervalIdx) => {
+                const indices = lineupStr.split(',');
+                intervalLineups[intervalIdx + 1] = indices.map(idx => {
+                    if (idx === '-' || idx === '') return null;
+                    const playerIdx = parseInt(idx);
+                    return players[playerIdx] ? players[playerIdx].id : null;
+                });
+            });
+            
+            return { players, matchDuration, intervalCount, intervalLineups };
+        } catch (e) {
+            console.error('Failed to decode plan:', e);
+            return null;
+        }
+    }
+
+    sharePlan() {
+        const encoded = this.encodePlan();
+        const url = `${window.location.origin}${window.location.pathname}#${encoded}`;
+        
+        navigator.clipboard.writeText(url).then(() => {
+            // Show feedback
+            const btn = document.getElementById('share-plan-btn');
+            const originalText = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.classList.remove('copied');
+            }, 2000);
+        }).catch(err => {
+            // Fallback: show URL in prompt
+            prompt('Copy this URL to share your plan:', url);
+        });
+    }
+
+    loadFromUrl() {
+        const hash = window.location.hash.slice(1); // Remove #
+        if (!hash || hash.length < 10) return false;
+        
+        const plan = this.decodePlan(hash);
+        if (!plan) return false;
+        
+        // Apply the shared plan
+        this.state.players = plan.players;
+        this.settings.matchDuration = plan.matchDuration;
+        this.settings.intervalCount = plan.intervalCount;
+        this.state.intervalLineups = plan.intervalLineups;
+        this.state.selectedPlanInterval = 1;
+        this.state.currentInterval = 1;
+        
+        // Clear URL hash after loading
+        history.replaceState(null, '', window.location.pathname);
+        
+        this.saveState();
+        return true;
     }
 }
 

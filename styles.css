@@ -138,6 +138,30 @@ header h1 {
     font-size: 0.8rem;
 }
 
+.btn-share {
+    background: var(--success);
+    color: var(--white);
+    margin-left: 8px;
+}
+
+.btn-share:hover:not(:disabled) {
+    background: #1e8449;
+}
+
+.btn-share.copied {
+    background: var(--primary);
+}
+
+.btn-copy-prev {
+    background: var(--dark);
+    color: var(--white);
+    margin-top: 8px;
+}
+
+.btn-copy-prev:hover:not(:disabled) {
+    background: #3d5166;
+}
+
 /* Settings Panel */
 .settings-panel {
     background: rgba(255, 255, 255, 0.05);
@@ -286,6 +310,35 @@ header h1 {
     padding: 15px;
     margin-bottom: 15px;
     text-align: center;
+}
+
+.interval-config {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.interval-config label {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.interval-config input {
+    width: 50px;
+    padding: 6px 8px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--white);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.interval-config input:focus {
+    outline: none;
+    border-color: var(--primary);
 }
 
 .interval-tabs {
