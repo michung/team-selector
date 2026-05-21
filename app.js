@@ -884,18 +884,27 @@ class TeamSelector {
                 this.removePlayerFromPitch(slotIndex);
             }
         } else if (location === 'bench') {
-            // Toggle selection for quick swap
-            if (this.selectedBenchPlayer === playerId) {
-                // Deselect
-                this.clearBenchSelection();
-                this.renderBench();
+            // Check if there's an empty slot on the pitch
+            const lineup = this.getCurrentLineup();
+            const hasEmptySlot = lineup.some(id => id === null);
+            
+            if (hasEmptySlot) {
+                // Auto-fill the empty slot with this player
+                this.addBenchPlayerToPitch(playerId);
             } else {
-                // Select this player (or switch selection)
-                this.clearBenchSelection();
-                this.selectedBenchPlayer = playerId;
-                const card = document.querySelector(`.player-card[data-player-id="${playerId}"]`);
-                if (card) card.classList.add('selected-for-swap');
-                this.showToast('Tap a pitch player to swap', 'default', 1500);
+                // No empty slots - toggle selection for quick swap
+                if (this.selectedBenchPlayer === playerId) {
+                    // Deselect
+                    this.clearBenchSelection();
+                    this.renderBench();
+                } else {
+                    // Select this player (or switch selection)
+                    this.clearBenchSelection();
+                    this.selectedBenchPlayer = playerId;
+                    const card = document.querySelector(`.player-card[data-player-id="${playerId}"]`);
+                    if (card) card.classList.add('selected-for-swap');
+                    this.showToast('Tap a pitch player to swap', 'default', 1500);
+                }
             }
         }
     }
@@ -1043,6 +1052,7 @@ class TeamSelector {
                 this.clearAllDragOverStates();
             } else {
                 e.stopPropagation();
+                e.preventDefault(); // Prevent synthetic click event from firing
                 this.handlePlayerTap(playerId, location, slotIndex);
             }
             this.endDrag();
@@ -1061,6 +1071,10 @@ class TeamSelector {
                 const newLineup = [...lineup];
                 newLineup[slotIndex] = playerId;
                 this.setCurrentLineup(newLineup);
+                
+                const player = this.getPlayerById(playerId);
+                this.showToast(`${player?.name} → pitch`);
+                
                 this.renderPitch();
                 this.renderBench();
                 this.renderStats();
