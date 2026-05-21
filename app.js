@@ -1574,6 +1574,51 @@ class TeamSelector {
                 }
             });
             
+            // Touch events for mobile (immediate drag, no delay)
+            let touchStartX, touchStartY, isDraggingTab = false;
+            const dragThreshold = 10;
+            
+            tab.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                isDraggingTab = false;
+                tab.classList.add('dragging');
+            }, { passive: true });
+            
+            tab.addEventListener('touchmove', (e) => {
+                const dx = Math.abs(e.touches[0].clientX - touchStartX);
+                const dy = Math.abs(e.touches[0].clientY - touchStartY);
+                if (dx > dragThreshold || dy > dragThreshold) {
+                    isDraggingTab = true;
+                    e.preventDefault();
+                    
+                    // Highlight drop target
+                    const touch = e.touches[0];
+                    const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                    document.querySelectorAll('.interval-tab').forEach(t => t.classList.remove('drag-over'));
+                    if (target?.classList.contains('interval-tab') && target !== tab) {
+                        target.classList.add('drag-over');
+                    }
+                }
+            }, { passive: false });
+            
+            tab.addEventListener('touchend', (e) => {
+                tab.classList.remove('dragging');
+                document.querySelectorAll('.interval-tab').forEach(t => t.classList.remove('drag-over'));
+                
+                if (isDraggingTab) {
+                    const touch = e.changedTouches[0];
+                    const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                    if (target?.classList.contains('interval-tab')) {
+                        const toInterval = parseInt(target.dataset.interval);
+                        if (toInterval !== i) {
+                            this.copyLineupFromTo(i, toInterval);
+                        }
+                    }
+                    e.preventDefault();
+                }
+            });
+            
             this.elements.intervalTabs.appendChild(tab);
         }
     }
