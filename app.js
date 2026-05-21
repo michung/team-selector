@@ -420,6 +420,11 @@ class TeamSelector {
         // Copy from previous interval button (removed - now using drag between tabs)
         // this.elements.copyPrevBtn.addEventListener('click', () => this.copyFromPreviousInterval());
 
+        // Tap to dismiss live hint overlay
+        this.elements.liveHintOverlay.addEventListener('click', () => {
+            this.elements.liveHintOverlay.classList.add('hidden');
+        });
+
         // Set initial values
         this.elements.matchDuration.value = this.settings.matchDuration;
         this.elements.intervalCount.textContent = this.settings.intervalCount;
@@ -499,7 +504,7 @@ class TeamSelector {
         setTimeout(() => {
             overlay.style.pointerEvents = 'auto';
             overlay.classList.remove('no-touch');
-        }, 300);
+        }, 500);
     }
 
     selectAssist(assistPlayerId) {
@@ -535,10 +540,27 @@ class TeamSelector {
     }
 
     // Helper: Show toast notification
-    showToast(message, type = 'default', duration = 2000) {
+    showToast(message, type = 'default', duration = 2000, undoCallback = null) {
         const toast = document.createElement('div');
         toast.className = `toast ${type === 'success' ? 'toast-success' : ''}`;
-        toast.textContent = message;
+        
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = message;
+        toast.appendChild(messageSpan);
+        
+        // Add undo button if callback provided
+        if (undoCallback) {
+            const undoBtn = document.createElement('button');
+            undoBtn.className = 'toast-undo';
+            undoBtn.textContent = 'Undo';
+            undoBtn.addEventListener('click', () => {
+                undoCallback();
+                toast.remove();
+            });
+            toast.appendChild(undoBtn);
+            duration = 5000; // Extend duration for undo toasts
+        }
+        
         this.elements.toastContainer.appendChild(toast);
         
         setTimeout(() => {
@@ -641,11 +663,11 @@ class TeamSelector {
             score: `${this.state.scoreUs} - ${this.state.scoreThem}`
         });
 
-        // Show toast notification
+        // Show toast notification with undo option
         const goalText = team === 'us' 
             ? `⚽ Goal! ${scorerName}${assistName ? ` (assist: ${assistName})` : ''}`
             : `🔴 Goal - Opponent`;
-        this.showToast(goalText, 'success');
+        this.showToast(goalText, 'success', 2000, () => this.undoLastGoal());
 
         this.updateScoreDisplay();
         this.renderMatchEvents();
@@ -1072,7 +1094,10 @@ class TeamSelector {
             this.state.intervalLineups[interval] = lineup;
         }
         
-        this.showToast(`Auto-generated! Target: ~${targetIntervals.toFixed(1)} intervals each`);
+        // Calculate average minutes per outfield player
+        const intervalDuration = this.settings.matchDuration / intervals;
+        const avgMinutes = Math.round(targetIntervals * intervalDuration);
+        this.showToast(`~${targetIntervals.toFixed(1)} intervals · ~${avgMinutes} mins each`);
         
         this.renderAll();
         this.saveState();
@@ -1866,12 +1891,17 @@ class TeamSelector {
             slot.innerHTML = '';
             slot.classList.remove('has-player');
             
+            // Also toggle class on parent position-slot for label fading
+            const positionSlot = slot.closest('.position-slot');
+            if (positionSlot) positionSlot.classList.remove('has-player');
+            
             const playerId = lineup[index];
             
             if (playerId !== null) {
                 const player = this.getPlayerById(playerId);
                 if (player) {
                     slot.classList.add('has-player');
+                    if (positionSlot) positionSlot.classList.add('has-player');
                     const playerCard = this.createPlayerCard(player, 'pitch', index);
                     slot.appendChild(playerCard);
                 }
@@ -1917,12 +1947,16 @@ class TeamSelector {
         
         // Show goal indicator in live mode
         const goals = player.goals || 0;
+        const assists = player.assists || 0;
         const goalIndicator = this.state.mode === 'live' && goals > 0 
             ? `<span class="goal-indicator">${goals > 1 ? '⚽×' + goals : '⚽'}</span>` 
             : '';
+        const assistIndicator = this.state.mode === 'live' && assists > 0
+            ? `<span class="assist-indicator">${assists > 1 ? '🅰️×' + assists : '🅰️'}</span>`
+            : '';
         
         card.innerHTML = `
-            <span class="player-name">${player.name}${goalIndicator}</span>
+            <span class="player-name">${player.name}${goalIndicator}${assistIndicator}</span>
             <span class="player-minutes">${minuteLabel}</span>
         `;
         
