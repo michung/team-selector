@@ -51,6 +51,7 @@ class TeamSelector {
             sourceSlot: null,
             sourceLocation: null // 'pitch' or 'bench'
         };
+        this.wasDragging = false; // Prevents swipe during/after drag
 
         // Flag to prevent auto-fill after removal
         this.justRemovedPlayer = false;
@@ -461,6 +462,8 @@ class TeamSelector {
         
         this.elements.pitch.addEventListener('touchend', (e) => {
             if (this.state.mode !== 'plan') return;
+            // Don't trigger swipe if we're dragging or just finished dragging a player
+            if (this.dragState.draggingPlayer || this.wasDragging) return;
             
             const endX = e.changedTouches[0].clientX;
             const endY = e.changedTouches[0].clientY;
@@ -1121,6 +1124,7 @@ class TeamSelector {
     }
 
     startDrag(playerId, location, slotIndex) {
+        this.wasDragging = true;
         this.dragState = {
             draggingPlayer: playerId,
             sourceLocation: location,
@@ -1135,6 +1139,8 @@ class TeamSelector {
             sourceSlot: null,
             sourceLocation: null
         };
+        // Clear wasDragging after a short delay to prevent swipe triggering
+        setTimeout(() => { this.wasDragging = false; }, 100);
     }
 
     handleTouchMove(touch) {
