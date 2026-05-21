@@ -562,7 +562,7 @@ header h1 {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -796,6 +796,11 @@ header h1 {
     font-size: 0.55rem;
     color: rgba(255, 255, 255, 0.8);
     margin-top: 2px;
+}
+
+.goal-indicator {
+    font-size: 0.5rem;
+    margin-left: 2px;
 }
 
 .player-card .player-number {
@@ -1058,8 +1063,8 @@ header h1 {
 }
 
 .sub-out {
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.8rem;
+    color: #e74c3c;
+    font-size: 0.85rem;
 }
 
 .event-detail-subs {
@@ -1376,6 +1381,12 @@ header h1 {
 .assist-player-btn:hover {
     background: var(--success);
     border-color: var(--success);
+}
+
+/* Suppress hover during grace period after overlay appears */
+.no-touch .assist-player-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .assist-number {

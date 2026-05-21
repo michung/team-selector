@@ -301,16 +301,16 @@ class TeamSelector {
             { name: 'Chester', number: 2, positions: [1, 3, 2] },      // LB, can play RB
             { name: 'Elliott', number: 3, positions: [2] },         // CB
             { name: 'Lucas', number: 4, positions: [3, 1] },        // RB, can play LB
-            { name: 'Stuart', number: 5, positions: [4, 7, 8] },       // LW, can play RW
-            { name: 'Jaxson', number: 6, positions: [5, 6] },       // LCM, can play RCM
-            { name: 'Dylan', number: 7, positions: [6, 5, 1, 2] },        // RCM, can play LCM
-            { name: 'Alfie S', number: 8, positions: [7, 4] },      // RW, can play LW
-            { name: 'Ollie', number: 9, positions: [8, 4] },           // FW
-            // Substitutes - versatile players
-            { name: 'Leo', number: 10, positions: [8, 4, 7] },      // FW, LW, RW
-            { name: 'Sophie', number: 11, positions: [5, 6, 8, 7] },      // CM (both)
-            { name: 'Alfie B', number: 12, positions: [1, 3, 7, 4] },  // LB, RB
-            { name: 'Jude', number: 13, positions: [4, 7, 8, 5, 6] }      // LW, RW, FW
+            { name: 'Alfie B', number: 5, positions: [1, 3, 7, 4] },  // LB, RB           
+            { name: 'Jude', number: 6, positions: [4, 7, 8, 5, 6] },   // LW, can play RW, FW, LCM, RCM
+            { name: 'Jaxson', number: 7, positions: [5, 6] },       // LCM, can play RCM
+            { name: 'Dylan', number: 8, positions: [6, 5, 1, 2] },        // RCM, can play LCM
+            { name: 'Stuart', number: 9, positions: [4, 7, 8] },       // LW, can play RW
+            { name: 'Alfie S', number: 10, positions: [7, 4] },      // RW, can play LW
+            { name: 'Ollie', number: 11, positions: [8, 4] },           // FW, can play LW
+            { name: 'Leo', number: 12, positions: [8, 4, 7] },      // FW, LW, RW
+            { name: 'Sophie', number: 13, positions: [5, 6, 8, 7] }, // LCM, RCM, FW, RW
+
         ];
 
         defaultSquad.forEach((player, index) => {
@@ -494,9 +494,11 @@ class TeamSelector {
         
         // Disable pointer events briefly to prevent accidental selection on finger lift
         overlay.style.pointerEvents = 'none';
+        overlay.classList.add('no-touch');
         overlay.style.display = 'flex';
         setTimeout(() => {
             overlay.style.pointerEvents = 'auto';
+            overlay.classList.remove('no-touch');
         }, 300);
     }
 
@@ -647,6 +649,8 @@ class TeamSelector {
 
         this.updateScoreDisplay();
         this.renderMatchEvents();
+        this.renderPitch();
+        this.renderBench();
         this.saveState();
     }
 
@@ -687,6 +691,8 @@ class TeamSelector {
 
         this.updateScoreDisplay();
         this.renderMatchEvents();
+        this.renderPitch();
+        this.renderBench();
         this.saveState();
     }
 
@@ -1909,8 +1915,14 @@ class TeamSelector {
         const displayMinutes = this.state.mode === 'plan' ? plannedMinutes : minutes;
         const minuteLabel = this.state.mode === 'plan' ? `${plannedMinutes}'` : `${minutes}'`;
         
+        // Show goal indicator in live mode
+        const goals = player.goals || 0;
+        const goalIndicator = this.state.mode === 'live' && goals > 0 
+            ? `<span class="goal-indicator">${goals > 1 ? '⚽×' + goals : '⚽'}</span>` 
+            : '';
+        
         card.innerHTML = `
-            <span class="player-name">${player.name}</span>
+            <span class="player-name">${player.name}${goalIndicator}</span>
             <span class="player-minutes">${minuteLabel}</span>
         `;
         
