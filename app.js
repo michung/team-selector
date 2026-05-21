@@ -16,6 +16,11 @@ const CONFIG = {
     DEFAULT_MATCH_DURATION: 60
 };
 
+// String constants to avoid magic strings
+const MODES = { PLAN: 'plan', LIVE: 'live' };
+const TEAMS = { US: 'us', THEM: 'them' };
+const LOCATIONS = { PITCH: 'pitch', BENCH: 'bench' };
+
 // Default state template
 const DEFAULT_STATE = {
     mode: 'plan',
@@ -167,6 +172,12 @@ class TeamSelector {
                     this.state.lastTickTime = null;
                     this.state.isRunning = false; // Force paused state on migration
                 }
+                
+                // Clear stale session data (onPitchSinceElapsed is runtime-only)
+                this.state.players.forEach(p => p.onPitchSinceElapsed = undefined);
+                // Timer shouldn't be running on page load
+                this.state.isRunning = false;
+                this.state.startTime = null;
             }
         } catch (e) {
             console.warn('Failed to load saved state, using defaults:', e);
@@ -643,6 +654,13 @@ class TeamSelector {
     startTimerInterval() {
         // Update display frequently - time is calculated from startTime, not incremented
         this.timerInterval = setInterval(() => {
+            // Check if match duration reached - auto-stop timer
+            if (this.getElapsedSeconds() >= this.matchDurationSeconds) {
+                this.pauseTimer();
+                this.showToast('Full time!', 'success');
+                return;
+            }
+            
             this.updateTimerDisplay();
             this.updatePlayerMinutes();
             this.checkIntervalChange();
@@ -663,12 +681,27 @@ class TeamSelector {
         this.elements.startBtn.disabled = true;
         this.elements.pauseBtn.disabled = false;
 
+        // Set onPitchSinceElapsed for all players currently on pitch
+        const currentElapsed = this.getElapsedSeconds();
+        const lineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        lineup.forEach(playerId => {
+            if (playerId !== null) {
+                const player = this.getPlayerById(playerId);
+                if (player && player.onPitchSinceElapsed === undefined) {
+                    player.onPitchSinceElapsed = currentElapsed;
+                }
+            }
+        });
+
         this.startTimerInterval();
         this.saveState();
     }
 
     pauseTimer() {
         if (!this.state.isRunning) return;
+
+        // Finalize minutes for all players on pitch before pausing
+        this.finalizeAllOnPitchMinutes();
 
         // Accumulate elapsed time before pausing
         const now = Date.now();
@@ -683,6 +716,79 @@ class TeamSelector {
 
         clearInterval(this.timerInterval);
         this.saveState();
+    }
+
+    // Finalize minutes for all players currently on pitch
+    finalizeAllOnPitchMinutes() {
+        const currentElapsed = this.getElapsedSeconds();
+        const lineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        lineup.forEach(playerId => {
+            if (playerId !== null) {
+                const player = this.getPlayerById(playerId);
+                if (player && player.onPitchSinceElapsed !== undefined) {
+                    player.minutesPlayed += (currentElapsed - player.onPitchSinceElapsed) / 60;
+                    player.onPitchSinceElapsed = undefined;
+                }
+            }
+        });
+    }
+
+    // Finalize minutes for a specific player coming off pitch
+    finalizePlayerMinutes(playerId) {
+        if (this.state.mode !== 'live' || !this.state.isRunning) return;
+        const player = this.getPlayerById(playerId);
+        if (player && player.onPitchSinceElapsed !== undefined) {
+            const currentElapsed = this.getElapsedSeconds();
+            player.minutesPlayed += (currentElapsed - player.onPitchSinceElapsed) / 60;
+            player.onPitchSinceElapsed = undefined;
+        }
+    }
+
+    // Start tracking minutes for a player coming onto pitch
+    startPlayerMinutes(playerId) {
+        if (this.state.mode !== 'live' || !this.state.isRunning) return;
+        const player = this.getPlayerById(playerId);
+        if (player) {
+            player.onPitchSinceElapsed = this.getElapsedSeconds();
+        }
+    }
+
+    // Get current minutes for a player (including live session if on pitch)
+    getPlayerCurrentMinutes(playerId) {
+        const player = this.getPlayerById(playerId);
+        if (!player) return 0;
+        
+        let minutes = player.minutesPlayed || 0;
+        
+        // Add current session time if on pitch with timer running
+        // Check isPlayerOnPitch to avoid stale onPitchSinceElapsed values
+        if (this.state.isRunning && player.onPitchSinceElapsed !== undefined && this.isPlayerOnPitch(playerId)) {
+            const currentElapsed = this.getElapsedSeconds();
+            minutes += (currentElapsed - player.onPitchSinceElapsed) / 60;
+        }
+        
+        return minutes;
+    }
+
+    // Cached calculation for match duration in seconds
+    get matchDurationSeconds() {
+        return this.settings.matchDuration * 60;
+    }
+
+    // Helper: Record a substitution event
+    recordSubstitution(playerInId, playerOutId) {
+        if (this.state.mode !== MODES.LIVE) return;
+        const playerIn = this.getPlayerById(playerInId);
+        const playerOut = this.getPlayerById(playerOutId);
+        if (!playerIn || !playerOut) return;
+        
+        this.state.matchEvents.push({
+            type: 'sub',
+            time: this.getElapsedSeconds(),
+            playerIn: playerIn.name,
+            playerOut: playerOut.name
+        });
+        this.renderMatchEvents();
     }
 
     // ==================== MODE SWITCHING ====================
@@ -750,9 +856,13 @@ class TeamSelector {
 
     updateTimerDisplay() {
         const totalSeconds = this.getElapsedSeconds();
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
+        
+        // Cap display at match duration
+        const displaySeconds = Math.min(totalSeconds, this.matchDurationSeconds);
+        const minutes = Math.floor(displaySeconds / 60);
+        const seconds = displaySeconds % 60;
         const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
         const speedStr = this.state.speedMultiplier > 1 ? ` (${this.state.speedMultiplier}x)` : '';
         this.elements.currentTime.textContent = timeStr + speedStr;
     }
@@ -818,6 +928,7 @@ class TeamSelector {
             this.state.players.forEach(p => {
                 p.minutesPlayed = 0;
                 p.goals = 0;
+                p.onPitchSinceElapsed = undefined;
             });
             this.updateTimerDisplay();
             this.updateIntervalDisplay();
@@ -885,32 +996,9 @@ class TeamSelector {
     }
 
     updatePlayerMinutes() {
-        const now = Date.now();
-        const lastTick = this.state.lastTickTime || now;
-        const deltaMs = (now - lastTick) * this.state.speedMultiplier;
-        const deltaMinutes = deltaMs / 60000; // Convert ms to minutes
+        // Minutes are now calculated from timestamps, not incremented
+        // This function just triggers display updates
         
-        this.state.lastTickTime = now;
-        
-        // Sanity check: skip if delta is negative or too large (e.g., device woke from sleep)
-        // Max 5 seconds worth of time per tick.
-        if (deltaMinutes < 0 || deltaMinutes > (5 / 60)) return;
-        
-        // Skip if no time has passed (avoid unnecessary processing)
-        if (deltaMinutes === 0) return;
-        
-        // Add time delta to each player on pitch (use live interval)
-        const currentLineup = this.state.intervalLineups[this.state.currentInterval] || [];
-        currentLineup.forEach(playerId => {
-            if (playerId !== null) {
-                const player = this.getPlayerById(playerId);
-                if (player) {
-                    player.minutesPlayed += deltaMinutes;
-                }
-            }
-        });
-
-        // Update minutes display without full re-render (to avoid interrupting user interactions)
         const elapsed = this.getElapsedSeconds();
         if (this._lastDisplayedSecond !== elapsed) {
             this._lastDisplayedSecond = elapsed;
@@ -931,7 +1019,7 @@ class TeamSelector {
             if (player) {
                 const minutesEl = card.querySelector('.player-minutes');
                 if (minutesEl) {
-                    const minutes = Math.floor(player.minutesPlayed);
+                    const minutes = Math.floor(this.getPlayerCurrentMinutes(playerId));
                     const plannedMinutes = this.getPlannedMinutes(player.id);
                     const minuteLabel = this.state.mode === 'plan' ? `${plannedMinutes}'` : `${minutes}'`;
                     minutesEl.textContent = minuteLabel;
@@ -957,14 +1045,12 @@ class TeamSelector {
                 this.showToast(`${benchPlayer?.name} ↔ ${pitchPlayer?.name || 'empty'}`);
                 
                 // Record substitution in live mode
-                if (this.state.mode === 'live' && pitchPlayer) {
-                    this.state.matchEvents.push({
-                        type: 'sub',
-                        time: this.getElapsedSeconds(),
-                        playerIn: benchPlayer ? benchPlayer.name : 'Unknown',
-                        playerOut: pitchPlayer.name
-                    });
-                    this.renderMatchEvents();
+                // Track minutes for the swap
+                this.finalizePlayerMinutes(pitchPlayerId);
+                this.startPlayerMinutes(this.selectedBenchPlayer);
+                
+                if (pitchPlayer) {
+                    this.recordSubstitution(this.selectedBenchPlayer, pitchPlayerId);
                 }
                 
                 this.clearBenchSelection();
@@ -1186,16 +1272,13 @@ class TeamSelector {
                 const player = this.getPlayerById(playerId);
                 this.showToast(`${player?.name} → pitch`);
                 
+                // Start tracking minutes for the new player
+                this.startPlayerMinutes(playerId);
+                
                 // Record substitution in live mode if a player was just removed
-                if (this.state.mode === 'live' && this._removedPlayersForSub.length > 0) {
+                if (this.state.mode === MODES.LIVE && this._removedPlayersForSub.length > 0) {
                     const removedPlayer = this._removedPlayersForSub.shift(); // Take first removed (FIFO)
-                    this.state.matchEvents.push({
-                        type: 'sub',
-                        time: this.getElapsedSeconds(),
-                        playerIn: player ? player.name : 'Unknown',
-                        playerOut: removedPlayer.name
-                    });
-                    this.renderMatchEvents();
+                    this.recordSubstitution(playerId, removedPlayer.id);
                 }
                 
                 this.renderPitch();
@@ -1215,6 +1298,7 @@ class TeamSelector {
         const removedPlayerId = lineup[slotIndex];
         const removedPlayer = removedPlayerId ? this.getPlayerById(removedPlayerId) : null;
         if (removedPlayerId) {
+            this.finalizePlayerMinutes(removedPlayerId);
             this.removedPlayersStack.push(removedPlayerId); // Add to stack for undo
             // Track the removed player for substitution recording
             if (this.state.mode === 'live' && removedPlayer) {
@@ -1378,21 +1462,17 @@ class TeamSelector {
             }
             lineup[targetSlotIndex] = draggingPlayer;
             
-            // Record substitution in live mode (only for bench to pitch moves)
-            if (sourceLocation === 'bench' && this.state.mode === 'live' && playerInTarget) {
-                const playerIn = this.getPlayerById(draggingPlayer);
-                const playerOut = this.getPlayerById(playerInTarget);
-                
-                this.state.matchEvents.push({
-                    type: 'sub',
-                    time: this.getElapsedSeconds(),
-                    playerIn: playerIn ? playerIn.name : 'Unknown',
-                    playerOut: playerOut ? playerOut.name : 'Empty slot'
-                });
-                this.renderMatchEvents();
+            // Track minutes and record substitution in live mode (only for bench to pitch moves)
+            if (sourceLocation === 'bench' && this.state.mode === MODES.LIVE) {
+                if (playerInTarget) {
+                    this.finalizePlayerMinutes(playerInTarget);
+                    this.recordSubstitution(draggingPlayer, playerInTarget);
+                }
+                this.startPlayerMinutes(draggingPlayer);
             }
         } else if (targetLocation === 'bench') {
             if (sourceLocation === 'pitch' && sourceSlot !== null) {
+                this.finalizePlayerMinutes(draggingPlayer);
                 lineup[sourceSlot] = null;
             }
         }
@@ -1411,23 +1491,18 @@ class TeamSelector {
         // Only handle pitch -> bench player swaps
         if (sourceLocation !== 'pitch' || sourceSlot === null) return;
         
+        // Track minutes for the swap
+        this.finalizePlayerMinutes(draggingPlayer);
+        this.startPlayerMinutes(benchPlayerId);
+        
         const lineup = [...this.getCurrentLineup()];
         
         // Put the bench player in the pitch slot
         lineup[sourceSlot] = benchPlayerId;
         
         // Record substitution in live mode
-        if (this.state.mode === 'live') {
-            const playerIn = this.getPlayerById(benchPlayerId);
-            const playerOut = this.getPlayerById(draggingPlayer);
-            
-            this.state.matchEvents.push({
-                type: 'sub',
-                time: this.getElapsedSeconds(),
-                playerIn: playerIn ? playerIn.name : 'Unknown',
-                playerOut: playerOut ? playerOut.name : 'Unknown'
-            });
-            this.renderMatchEvents();
+        if (this.state.mode === MODES.LIVE) {
+            this.recordSubstitution(benchPlayerId, draggingPlayer);
         }
         
         this.setCurrentLineup(lineup);
@@ -1554,7 +1629,7 @@ class TeamSelector {
         card.className = 'player-card';
         card.dataset.playerId = player.id;
         
-        const minutes = Math.floor(player.minutesPlayed);
+        const minutes = Math.floor(this.getPlayerCurrentMinutes(player.id));
         const plannedMinutes = this.getPlannedMinutes(player.id);
         
         // Show planned minutes in plan mode, actual minutes in live mode
@@ -1671,7 +1746,7 @@ class TeamSelector {
         const playersWithStats = this.state.players.map(p => ({
             ...p,
             plannedMinutes: this.getPlannedMinutes(p.id),
-            displayMinutes: this.state.mode === 'plan' ? this.getPlannedMinutes(p.id) : Math.floor(p.minutesPlayed)
+            displayMinutes: this.state.mode === 'plan' ? this.getPlannedMinutes(p.id) : Math.floor(this.getPlayerCurrentMinutes(p.id))
         }));
 
         // Sort by display minutes (ascending to show who needs more time)
