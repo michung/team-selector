@@ -21,6 +21,19 @@ const MODES = { PLAN: 'plan', LIVE: 'live' };
 const TEAMS = { US: 'us', THEM: 'them' };
 const LOCATIONS = { PITCH: 'pitch', BENCH: 'bench' };
 
+// Position slot mapping (index -> position name)
+const POSITIONS = {
+    0: 'GK',
+    1: 'LB',
+    2: 'CB',
+    3: 'RB',
+    4: 'LW',
+    5: 'LCM',
+    6: 'RCM',
+    7: 'RW',
+    8: 'FW'
+};
+
 // Default state template
 const DEFAULT_STATE = {
     mode: 'plan',
@@ -43,7 +56,8 @@ const DEFAULT_STATE = {
 const DEFAULT_SETTINGS = {
     matchDuration: CONFIG.DEFAULT_MATCH_DURATION,
     intervalCount: 4,
-    playersOnPitch: CONFIG.SLOTS_COUNT
+    playersOnPitch: CONFIG.SLOTS_COUNT,
+    subsPerInterval: 0  // Will be set to max bench size on first use
 };
 
 class TeamSelector {
@@ -178,6 +192,24 @@ class TeamSelector {
                 // Timer shouldn't be running on page load
                 this.state.isRunning = false;
                 this.state.startTime = null;
+                
+                // Migrate: add preferredPositions to players if missing
+                this.state.players.forEach((p, idx) => {
+                    if (!p.preferredPositions) {
+                        // Infer from interval 1 lineup or default to original position
+                        const lineup = this.state.intervalLineups[1] || [];
+                        const slot = lineup.indexOf(p.id);
+                        if (slot >= 0) {
+                            p.preferredPositions = [slot];
+                        } else if (idx < 9) {
+                            // Original starting player
+                            p.preferredPositions = [idx];
+                        } else {
+                            // Sub - no specific position yet
+                            p.preferredPositions = [];
+                        }
+                    }
+                });
             }
         } catch (e) {
             console.warn('Failed to load saved state, using defaults:', e);
@@ -214,15 +246,9 @@ class TeamSelector {
                               (i === 1 && !lineup.some(id => id !== null && this.getPlayerById(id)));
             
             if (needsInit) {
-                // Copy from previous interval or use first 9 players
+                // Start with empty pitch - players must be dragged on
                 if (i === 1) {
-                    this.state.intervalLineups[i] = this.state.players
-                        .slice(0, 9)
-                        .map(p => p.id);
-                    // Pad with nulls if not enough players
-                    while (this.state.intervalLineups[i].length < 9) {
-                        this.state.intervalLineups[i].push(null);
-                    }
+                    this.state.intervalLineups[i] = Array(9).fill(null);
                 } else {
                     this.state.intervalLineups[i] = [...this.state.intervalLineups[i - 1]];
                 }
@@ -267,23 +293,24 @@ class TeamSelector {
     }
 
     loadSamplePlayers() {
-        // Default lineup: GK, LB, CB, RB, LW, CM, CM, RW, FW
-        // Slot order: 0=GK, 1=LB, 2=CB, 3=RB, 4=LW, 5=CM, 6=CM, 7=RW, 8=FW
+        // Default lineup: GK, LB, CB, RB, LW, LCM, RCM, RW, FW
+        // Slot order: 0=GK, 1=LB, 2=CB, 3=RB, 4=LW, 5=LCM, 6=RCM, 7=RW, 8=FW
+        // preferredPositions: ordered array of slot indices (first = most preferred)
         const defaultSquad = [
-            { name: 'Felix', number: 1 },      // GK - slot 0
-            { name: 'Chester', number: 2 },   // LB - slot 1
-            { name: 'Elliott', number: 3 },   // CB - slot 2
-            { name: 'Lucas', number: 4 },     // RB - slot 3
-            { name: 'Stuart', number: 5 },    // LW - slot 4
-            { name: 'Jaxson', number: 6 },    // CM - slot 5
-            { name: 'Dylan', number: 7 },     // CM - slot 6
-            { name: 'Alfie S', number: 8 },   // RW - slot 7
-            { name: 'Ollie', number: 9 },     // FW - slot 8
-            // Substitutes
-            { name: 'Leo', number: 10 },
-            { name: 'Sophie', number: 11 },
-            { name: 'Alfie B', number: 12 },
-            { name: 'Jude', number: 13 }
+            { name: 'Felix', number: 1, positions: [0] },           // GK only
+            { name: 'Chester', number: 2, positions: [1, 3, 2] },      // LB, can play RB
+            { name: 'Elliott', number: 3, positions: [2] },         // CB
+            { name: 'Lucas', number: 4, positions: [3, 1] },        // RB, can play LB
+            { name: 'Stuart', number: 5, positions: [4, 7, 8] },       // LW, can play RW
+            { name: 'Jaxson', number: 6, positions: [5, 6] },       // LCM, can play RCM
+            { name: 'Dylan', number: 7, positions: [6, 5, 1, 2] },        // RCM, can play LCM
+            { name: 'Alfie S', number: 8, positions: [7, 4] },      // RW, can play LW
+            { name: 'Ollie', number: 9, positions: [8, 4] },           // FW
+            // Substitutes - versatile players
+            { name: 'Leo', number: 10, positions: [8, 4, 7] },      // FW, LW, RW
+            { name: 'Sophie', number: 11, positions: [5, 6, 8, 7] },      // CM (both)
+            { name: 'Alfie B', number: 12, positions: [1, 3, 7, 4] },  // LB, RB
+            { name: 'Jude', number: 13, positions: [4, 7, 8, 5, 6] }      // LW, RW, FW
         ];
 
         defaultSquad.forEach((player, index) => {
@@ -291,6 +318,7 @@ class TeamSelector {
                 id: index + 1,
                 name: player.name,
                 number: player.number,
+                preferredPositions: player.positions,
                 minutesPlayed: 0
             });
         });
@@ -353,6 +381,19 @@ class TeamSelector {
             const newCount = Math.min(CONFIG.INTERVAL_LIMITS.MAX, this.settings.intervalCount + 1);
             this.updateIntervalCount(newCount);
         });
+        
+        // Subs per interval stepper
+        document.getElementById('subs-dec').addEventListener('click', () => {
+            const newCount = Math.max(1, this.settings.subsPerInterval - 1);
+            this.updateSubsPerInterval(newCount);
+        });
+        document.getElementById('subs-inc').addEventListener('click', () => {
+            const maxSubs = this.getMaxBenchSize();
+            const newCount = Math.min(maxSubs, this.settings.subsPerInterval + 1);
+            this.updateSubsPerInterval(newCount);
+        });
+        
+        document.getElementById('auto-subs-btn').addEventListener('click', () => this.autoGenerateSubs());
 
         // Timer controls
         this.elements.startBtn.addEventListener('click', () => this.startTimer());
@@ -382,6 +423,38 @@ class TeamSelector {
         // Set initial values
         this.elements.matchDuration.value = this.settings.matchDuration;
         this.elements.intervalCount.textContent = this.settings.intervalCount;
+        this.updateSubsDisplay();
+    }
+    
+    // Get max possible bench size based on current players
+    getMaxBenchSize() {
+        const gk = this.state.players.find(p => p.preferredPositions?.includes(0)) || this.state.players[0];
+        const outfieldCount = gk ? this.state.players.length - 1 : this.state.players.length;
+        return Math.max(0, outfieldCount - (CONFIG.SLOTS_COUNT - 1));
+    }
+    
+    // Update subs per interval setting
+    updateSubsPerInterval(newCount) {
+        this.settings.subsPerInterval = newCount;
+        this.updateSubsDisplay();
+        this.saveState();
+    }
+    
+    // Update the subs display
+    updateSubsDisplay() {
+        const maxSubs = this.getMaxBenchSize();
+        // Initialize to max if unset (0) or clamp if exceeds current max
+        if (this.settings.subsPerInterval === 0 || this.settings.subsPerInterval > maxSubs) {
+            this.settings.subsPerInterval = maxSubs;
+        }
+        // Ensure at least 1 if there's a bench
+        if (maxSubs > 0 && this.settings.subsPerInterval < 1) {
+            this.settings.subsPerInterval = 1;
+        }
+        const subsEl = document.getElementById('subs-count');
+        if (subsEl) {
+            subsEl.textContent = this.settings.subsPerInterval;
+        }
     }
 
     // ==================== SCORE TRACKING ====================
@@ -854,6 +927,159 @@ class TeamSelector {
         this.saveState();
     }
 
+    /**
+     * Auto-generate substitution plan to distribute playtime fairly.
+     * Algorithm:
+     * 1. Calculate target game time for each player
+     * 2. For each interval, fill positions with players preferring that position
+     *    - If multiple players want same position, pick one with least game time
+     * 3. After filling, check bench players - swap in if they have less time than starter
+     */
+    autoGenerateSubs() {
+        const players = this.state.players;
+        const intervals = this.settings.intervalCount;
+        const pitchSize = CONFIG.SLOTS_COUNT; // 9
+        
+        if (players.length < pitchSize) {
+            this.showToast('Need at least 9 players');
+            return;
+        }
+        
+        // Clear existing lineups to start fresh
+        this.state.intervalLineups = {};
+        
+        // Find the GK (player with slot 0 as preferred, or first player)
+        const gk = players.find(p => p.preferredPositions?.includes(0)) || players[0];
+        const gkId = gk.id;
+        
+        // Outfield players (everyone except GK)
+        const outfieldPlayers = players.filter(p => p.id !== gkId);
+        const outfieldCount = outfieldPlayers.length;
+        const outfieldSlots = pitchSize - 1; // 8 outfield positions
+        
+        if (outfieldCount < outfieldSlots) {
+            this.showToast('Need more outfield players');
+            return;
+        }
+        
+        // Calculate target intervals for each player (average game time)
+        const totalPlayingSlots = intervals * outfieldSlots;
+        const targetIntervals = totalPlayingSlots / outfieldCount;
+        
+        // Track how many intervals each player has been assigned
+        const intervalsPlayed = {};
+        outfieldPlayers.forEach(p => intervalsPlayed[p.id] = 0);
+        
+        // Build lineups interval by interval
+        for (let interval = 1; interval <= intervals; interval++) {
+            const lineup = new Array(pitchSize).fill(null);
+            lineup[0] = gkId; // GK always plays
+            
+            const assignedThisInterval = new Set();
+            
+            // For each outfield slot (1-8), find best player
+            for (let slot = 1; slot < pitchSize; slot++) {
+                // Find players who prefer this position and aren't assigned yet
+                const candidates = outfieldPlayers.filter(p => 
+                    !assignedThisInterval.has(p.id) &&
+                    p.preferredPositions?.includes(slot)
+                );
+                
+                if (candidates.length > 0) {
+                    // Sort by least game time, then random for ties
+                    candidates.sort((a, b) => {
+                        const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
+                        return diff !== 0 ? diff : Math.random() - 0.5;
+                    });
+                    
+                    const chosen = candidates[0];
+                    lineup[slot] = chosen.id;
+                    assignedThisInterval.add(chosen.id);
+                }
+            }
+            
+            // Fill any remaining empty slots with unassigned players (by least game time)
+            for (let slot = 1; slot < pitchSize; slot++) {
+                if (lineup[slot] !== null) continue;
+                
+                const unassigned = outfieldPlayers
+                    .filter(p => !assignedThisInterval.has(p.id))
+                    .sort((a, b) => {
+                        const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
+                        return diff !== 0 ? diff : Math.random() - 0.5;
+                    });
+                
+                if (unassigned.length > 0) {
+                    lineup[slot] = unassigned[0].id;
+                    assignedThisInterval.add(unassigned[0].id);
+                }
+            }
+            
+            // Now check bench players (subs) - swap if they have less time than starter
+            const onPitch = new Set(lineup.filter(id => id !== null && id !== gkId));
+            const onBench = outfieldPlayers.filter(p => !onPitch.has(p.id));
+            
+            // Determine max swaps per interval
+            const maxSwaps = Math.min(this.settings.subsPerInterval, onBench.length);
+            let swapCount = 0;
+            
+            // Sort bench by least game time first, randomize ties for fairness
+            onBench.sort((a, b) => {
+                const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
+                return diff !== 0 ? diff : Math.random() - 0.5;
+            });
+            
+            for (const sub of onBench) {
+                if (swapCount >= maxSwaps) break;
+                
+                const subTime = intervalsPlayed[sub.id];
+                const subPrefs = sub.preferredPositions || [];
+                
+                // Go through sub's preferred positions in order
+                for (const prefSlot of subPrefs) {
+                    if (prefSlot === 0) continue; // Skip GK slot
+                    
+                    const currentPlayerId = lineup[prefSlot];
+                    if (!currentPlayerId || currentPlayerId === gkId) continue;
+                    
+                    const currentTime = intervalsPlayed[currentPlayerId];
+                    
+                    // Swap if sub has played less
+                    if (subTime < currentTime) {
+                        // Make sure current player can go to bench (we have enough coverage)
+                        lineup[prefSlot] = sub.id;
+                        onPitch.delete(currentPlayerId);
+                        onPitch.add(sub.id);
+                        swapCount++;
+                        break; // Sub is now on pitch, move to next sub
+                    }
+                }
+            }
+            
+            // Update intervals played count
+            for (let slot = 1; slot < pitchSize; slot++) {
+                if (lineup[slot]) {
+                    intervalsPlayed[lineup[slot]]++;
+                }
+            }
+            
+            this.state.intervalLineups[interval] = lineup;
+        }
+        
+        this.showToast(`Auto-generated! Target: ~${targetIntervals.toFixed(1)} intervals each`);
+        
+        this.renderAll();
+        this.saveState();
+    }
+
+    renderAll() {
+        this.renderIntervalTabs();
+        this.renderPitch();
+        this.renderBench();
+        this.renderStats();
+        this.renderMatchEvents();
+    }
+
     updateTimerDisplay() {
         const totalSeconds = this.getElapsedSeconds();
         
@@ -963,6 +1189,7 @@ class TeamSelector {
         this.renderRoster();
         this.renderBench();
         this.renderStats();
+        this.updateSubsDisplay();
     }
 
     removePlayer(playerId) {
@@ -981,6 +1208,7 @@ class TeamSelector {
         
         this.saveState();
         this.render();
+        this.updateSubsDisplay();
     }
 
     getPlayerById(id) {
@@ -2008,12 +2236,27 @@ class TeamSelector {
             const item = document.createElement('div');
             item.className = 'roster-item';
             
+            // Build position chips HTML
+            const positionChips = Object.entries(POSITIONS).map(([slot, name]) => {
+                const slotNum = parseInt(slot);
+                const isSelected = player.preferredPositions?.includes(slotNum);
+                const priority = isSelected ? player.preferredPositions.indexOf(slotNum) + 1 : null;
+                return `<span class="position-chip ${isSelected ? 'selected' : ''}" 
+                              data-slot="${slot}" 
+                              title="${isSelected ? `Priority ${priority}` : 'Click to add'}">
+                    ${name}${isSelected ? `<sub>${priority}</sub>` : ''}
+                </span>`;
+            }).join('');
+            
             item.innerHTML = `
-                <div class="player-info">
-                    <span class="player-number-badge">${player.number}</span>
-                    <span>${player.name}</span>
+                <div class="roster-item-header">
+                    <div class="player-info">
+                        <span class="player-number-badge">${player.number}</span>
+                        <span>${player.name}</span>
+                    </div>
+                    <button class="delete-btn" data-player-id="${player.id}">✕</button>
                 </div>
-                <button class="delete-btn" data-player-id="${player.id}">✕</button>
+                <div class="position-chips">${positionChips}</div>
             `;
             
             item.querySelector('.delete-btn').addEventListener('click', () => {
@@ -2022,8 +2265,41 @@ class TeamSelector {
                 }
             });
             
+            // Position chip click handlers
+            item.querySelectorAll('.position-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const slot = parseInt(chip.dataset.slot);
+                    this.togglePlayerPosition(player.id, slot);
+                });
+            });
+            
             this.elements.rosterList.appendChild(item);
         });
+    }
+
+    /**
+     * Toggle a position for a player. If already selected, remove it. 
+     * If not selected, add it to the end of their preference list.
+     */
+    togglePlayerPosition(playerId, slot) {
+        const player = this.getPlayerById(playerId);
+        if (!player) return;
+        
+        if (!player.preferredPositions) {
+            player.preferredPositions = [];
+        }
+        
+        const idx = player.preferredPositions.indexOf(slot);
+        if (idx >= 0) {
+            // Remove this position
+            player.preferredPositions.splice(idx, 1);
+        } else {
+            // Add this position (at end = lowest priority)
+            player.preferredPositions.push(slot);
+        }
+        
+        this.saveState();
+        this.renderRoster();
     }
 
     // ==================== SHARING ====================

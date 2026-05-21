@@ -373,7 +373,7 @@ header h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 12px;
     margin-bottom: 12px;
 }
 
@@ -1151,11 +1151,17 @@ header h1 {
 
 .roster-item {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
     padding: 10px;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 8px;
+}
+
+.roster-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .roster-item .player-info {
@@ -1182,6 +1188,45 @@ header h1 {
     font-size: 1.2rem;
     cursor: pointer;
     padding: 5px;
+}
+
+/* Position chips for preferred positions */
+.position-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.position-chip {
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.position-chip:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.position-chip.selected {
+    background: var(--primary);
+    color: var(--white);
+}
+
+.position-chip.selected:hover {
+    background: var(--accent);
+}
+
+.position-chip sub {
+    font-size: 0.6rem;
+    margin-left: 1px;
+    opacity: 0.7;
 }
 
 /* Interval Indicator */
