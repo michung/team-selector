@@ -180,9 +180,16 @@ class TeamSelector {
     }
 
     initializeIntervalLineups() {
-        // Initialize lineups for each interval if not already set
+        // Initialize lineups for each interval if not already set or if invalid
         for (let i = 1; i <= this.settings.intervalCount; i++) {
-            if (!this.state.intervalLineups[i]) {
+            const lineup = this.state.intervalLineups[i];
+            // Check if lineup is missing, not an array, empty, or has no valid players
+            const needsInit = !lineup || 
+                              !Array.isArray(lineup) || 
+                              lineup.length === 0 ||
+                              (i === 1 && !lineup.some(id => id !== null && this.getPlayerById(id)));
+            
+            if (needsInit) {
                 // Copy from previous interval or use first 9 players
                 if (i === 1) {
                     this.state.intervalLineups[i] = this.state.players
