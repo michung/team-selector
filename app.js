@@ -1529,7 +1529,7 @@ class TeamSelector {
                 this.setCurrentLineup(newLineup);
                 
                 const player = this.getPlayerById(playerId);
-                this.showToast(`${player?.name} → pitch`);
+                this.showToast(`${player?.name} → ${POSITIONS[slotIndex]}`);
                 
                 // Start tracking minutes for the new player
                 this.startPlayerMinutes(playerId);
