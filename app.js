@@ -55,7 +55,10 @@ class TeamSelector {
         // Flag to prevent auto-fill after removal
         this.justRemovedPlayer = false;
         this.justAddedPlayer = false;
-        this.lastRemovedPlayer = null; // Track last removed player for undo
+        this.removedPlayersStack = []; // Track removed players for undo (LIFO stack)
+
+        // Quick swap: selected bench player
+        this.selectedBenchPlayer = null;
 
         // Slot fill order: top to bottom, left to right
         // FW, LW, LCM, RCM, RW, LB, CB, RB, GK
@@ -95,6 +98,7 @@ class TeamSelector {
         this.initializeIntervalLineups();
         this.setupEventListeners();
         this.setupDropZones(); // Setup drop zones once
+        this.setupSwipeGestures(); // Setup swipe for interval navigation
         this.render();
     }
 
@@ -109,7 +113,7 @@ class TeamSelector {
             scoreThem: document.getElementById('score-them'),
             currentTime: document.getElementById('current-time'),
             intervalTabs: document.getElementById('interval-tabs'),
-            copyPrevBtn: document.getElementById('copy-prev-btn'),
+            copyPrevBtn: document.getElementById('copy-prev-btn'), // Legacy, may be null
             startBtn: document.getElementById('start-btn'),
             pauseBtn: document.getElementById('pause-btn'),
             planControls: document.getElementById('plan-controls'),
@@ -126,7 +130,9 @@ class TeamSelector {
             assistOptions: document.getElementById('assist-options'),
             liveHintOverlay: document.getElementById('live-hint-overlay'),
             rosterList: document.getElementById('roster-list'),
-            newPlayerName: document.getElementById('new-player-name')
+            newPlayerName: document.getElementById('new-player-name'),
+            toastContainer: document.getElementById('toast-container'),
+            pitch: document.getElementById('pitch')
         };
     }
 
@@ -340,7 +346,8 @@ class TeamSelector {
         this.elements.sharePlanBtn.addEventListener('click', () => this.sharePlan());
 
         // Copy from previous interval button
-        this.elements.copyPrevBtn.addEventListener('click', () => this.copyFromPreviousInterval());
+        // Copy from previous interval button (removed - now using drag between tabs)
+        // this.elements.copyPrevBtn.addEventListener('click', () => this.copyFromPreviousInterval());
 
         // Set initial values
         this.elements.matchDuration.value = this.settings.matchDuration;
@@ -422,6 +429,62 @@ class TeamSelector {
         setTimeout(() => element.classList.remove('scoring'), CONFIG.SCORING_ANIMATION_MS);
     }
 
+    // Helper: Show toast notification
+    showToast(message, type = 'default', duration = 2000) {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type === 'success' ? 'toast-success' : ''}`;
+        toast.textContent = message;
+        this.elements.toastContainer.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.classList.add('toast-out');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
+    // Setup swipe gestures for interval navigation (Plan mode)
+    setupSwipeGestures() {
+        let startX = 0;
+        let startY = 0;
+        const swipeThreshold = 50;
+        
+        this.elements.pitch.addEventListener('touchstart', (e) => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+        
+        this.elements.pitch.addEventListener('touchend', (e) => {
+            if (this.state.mode !== 'plan') return;
+            
+            const endX = e.changedTouches[0].clientX;
+            const endY = e.changedTouches[0].clientY;
+            const dx = endX - startX;
+            const dy = endY - startY;
+            
+            // Only trigger swipe if horizontal movement is greater than vertical
+            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > swipeThreshold) {
+                if (dx < 0 && this.state.selectedPlanInterval < this.settings.intervalCount) {
+                    // Swipe left - next interval
+                    this.selectPlanInterval(this.state.selectedPlanInterval + 1);
+                    this.showToast(`Interval ${this.state.selectedPlanInterval}`);
+                } else if (dx > 0 && this.state.selectedPlanInterval > 1) {
+                    // Swipe right - previous interval
+                    this.selectPlanInterval(this.state.selectedPlanInterval - 1);
+                    this.showToast(`Interval ${this.state.selectedPlanInterval}`);
+                }
+            }
+        }, { passive: true });
+    }
+
+    // Helper: Clear bench player selection
+    clearBenchSelection() {
+        if (this.selectedBenchPlayer) {
+            const oldSelected = document.querySelector('.player-card.selected-for-swap');
+            if (oldSelected) oldSelected.classList.remove('selected-for-swap');
+            this.selectedBenchPlayer = null;
+        }
+    }
+
     finalizeGoal(playerId, assistPlayerId, team) {
         if (team === 'us') {
             this.state.scoreUs++;
@@ -467,6 +530,12 @@ class TeamSelector {
             assist: assistName,
             score: `${this.state.scoreUs} - ${this.state.scoreThem}`
         });
+
+        // Show toast notification
+        const goalText = team === 'us' 
+            ? `⚽ Goal! ${scorerName}${assistName ? ` (assist: ${assistName})` : ''}`
+            : `🔴 Goal - Opponent`;
+        this.showToast(goalText, 'success');
 
         this.updateScoreDisplay();
         this.renderMatchEvents();
@@ -589,6 +658,7 @@ class TeamSelector {
         this.elements.statsSection.style.display = mode === 'plan' ? 'block' : 'none';
         this.elements.eventsSection.style.display = mode === 'live' ? 'block' : 'none';
         
+        this.clearBenchSelection();
         this.renderPitch();
         this.renderBench();
         if (mode === 'live') {
@@ -601,6 +671,7 @@ class TeamSelector {
 
     selectPlanInterval(interval) {
         this.state.selectedPlanInterval = interval;
+        this.clearBenchSelection();
         this.renderIntervalTabs();
         this.renderPitch();
         this.renderBench();
@@ -610,11 +681,21 @@ class TeamSelector {
     copyFromPreviousInterval() {
         const current = this.state.selectedPlanInterval;
         if (current > 1) {
-            this.state.intervalLineups[current] = [...this.state.intervalLineups[current - 1]];
-            this.renderPitch();
-            this.renderBench();
-            this.saveState();
+            this.copyLineupFromTo(current - 1, current);
         }
+    }
+
+    // Copy lineup from one interval to another
+    copyLineupFromTo(fromInterval, toInterval) {
+        if (fromInterval === toInterval) return;
+        if (!this.state.intervalLineups[fromInterval]) return;
+        
+        this.state.intervalLineups[toInterval] = [...this.state.intervalLineups[fromInterval]];
+        this.showToast(`Copied interval ${fromInterval} → ${toInterval}`);
+        this.renderPitch();
+        this.renderBench();
+        this.renderStats();
+        this.saveState();
     }
 
     updateTimerDisplay() {
@@ -775,9 +856,38 @@ class TeamSelector {
     // Helper: Handle player tap action (click/tap without drag)
     handlePlayerTap(playerId, location, slotIndex) {
         if (location === 'pitch') {
-            this.removePlayerFromPitch(slotIndex);
+            // If a bench player is selected, swap them
+            if (this.selectedBenchPlayer) {
+                const lineup = [...this.getCurrentLineup()];
+                const pitchPlayerId = lineup[slotIndex];
+                lineup[slotIndex] = this.selectedBenchPlayer;
+                this.setCurrentLineup(lineup);
+                
+                const benchPlayer = this.getPlayerById(this.selectedBenchPlayer);
+                const pitchPlayer = pitchPlayerId ? this.getPlayerById(pitchPlayerId) : null;
+                this.showToast(`${benchPlayer?.name} ↔ ${pitchPlayer?.name || 'empty'}`);
+                
+                this.clearBenchSelection();
+                this.renderPitch();
+                this.renderBench();
+                this.renderStats();
+            } else {
+                this.removePlayerFromPitch(slotIndex);
+            }
         } else if (location === 'bench') {
-            this.addBenchPlayerToPitch(playerId);
+            // Toggle selection for quick swap
+            if (this.selectedBenchPlayer === playerId) {
+                // Deselect
+                this.clearBenchSelection();
+                this.renderBench();
+            } else {
+                // Select this player (or switch selection)
+                this.clearBenchSelection();
+                this.selectedBenchPlayer = playerId;
+                const card = document.querySelector(`.player-card[data-player-id="${playerId}"]`);
+                if (card) card.classList.add('selected-for-swap');
+                this.showToast('Tap a pitch player to swap', 'default', 1500);
+            }
         }
     }
 
@@ -956,7 +1066,10 @@ class TeamSelector {
     removePlayerFromPitch(slotIndex) {
         this.justRemovedPlayer = true;
         const lineup = [...this.getCurrentLineup()];
-        this.lastRemovedPlayer = lineup[slotIndex]; // Store removed player for undo
+        const removedPlayer = lineup[slotIndex];
+        if (removedPlayer) {
+            this.removedPlayersStack.push(removedPlayer); // Add to stack for undo
+        }
         lineup[slotIndex] = null;
         this.setCurrentLineup(lineup);
         this.renderPitch();
@@ -981,10 +1094,14 @@ class TeamSelector {
         const lineup = this.getCurrentLineup();
         if (lineup[slotIndex] !== null) return;
         
-        // Use last removed player if available and still on bench
+        // Use last removed player from stack if available and still on bench
         let playerToAdd = null;
-        if (this.lastRemovedPlayer && !this.isPlayerOnPitch(this.lastRemovedPlayer)) {
-            playerToAdd = this.lastRemovedPlayer;
+        while (this.removedPlayersStack.length > 0) {
+            const candidate = this.removedPlayersStack.pop();
+            if (!this.isPlayerOnPitch(candidate)) {
+                playerToAdd = candidate;
+                break;
+            }
         }
         
         if (!playerToAdd) return;
@@ -992,7 +1109,6 @@ class TeamSelector {
         const newLineup = [...lineup];
         newLineup[slotIndex] = playerToAdd;
         this.setCurrentLineup(newLineup);
-        this.lastRemovedPlayer = null; // Clear after use
         this.renderPitch();
         this.renderBench();
         this.renderStats();
@@ -1157,6 +1273,12 @@ class TeamSelector {
         }
         
         this.setCurrentLineup(lineup);
+        
+        // Show toast for the swap
+        const benchPlayer = this.getPlayerById(benchPlayerId);
+        const pitchPlayer = this.getPlayerById(draggingPlayer);
+        this.showToast(`${benchPlayer?.name} ↔ ${pitchPlayer?.name}`);
+        
         this.renderPitch();
         this.renderBench();
         this.renderStats();
@@ -1183,12 +1305,44 @@ class TeamSelector {
             const tab = document.createElement('button');
             tab.className = 'interval-tab' + (i === this.state.selectedPlanInterval ? ' active' : '');
             tab.textContent = `${i}`;
+            tab.dataset.interval = i;
+            tab.draggable = true;
+            
+            // Click to select interval
             tab.addEventListener('click', () => this.selectPlanInterval(i));
+            
+            // Drag to copy lineup
+            tab.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', i);
+                e.dataTransfer.effectAllowed = 'copy';
+                tab.classList.add('dragging');
+            });
+            
+            tab.addEventListener('dragend', () => {
+                tab.classList.remove('dragging');
+            });
+            
+            tab.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                tab.classList.add('drag-over');
+            });
+            
+            tab.addEventListener('dragleave', () => {
+                tab.classList.remove('drag-over');
+            });
+            
+            tab.addEventListener('drop', (e) => {
+                e.preventDefault();
+                tab.classList.remove('drag-over');
+                const fromInterval = parseInt(e.dataTransfer.getData('text/plain'));
+                const toInterval = i;
+                if (fromInterval !== toInterval) {
+                    this.copyLineupFromTo(fromInterval, toInterval);
+                }
+            });
+            
             this.elements.intervalTabs.appendChild(tab);
         }
-
-        // Show/hide copy previous button
-        this.elements.copyPrevBtn.style.display = this.state.selectedPlanInterval > 1 ? 'inline-block' : 'none';
     }
 
     renderPitch() {

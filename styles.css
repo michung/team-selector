@@ -465,6 +465,17 @@ header h1 {
     border-color: var(--primary);
 }
 
+.interval-tab.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+}
+
+.interval-tab.drag-over {
+    border-color: var(--success);
+    background: rgba(39, 174, 96, 0.3);
+    transform: scale(1.1);
+}
+
 .plan-hint {
     font-size: 0.8rem;
     color: rgba(255, 255, 255, 0.6);
@@ -1315,4 +1326,71 @@ header h1 {
 .assist-skip {
     width: 100%;
     padding: 12px;
+}
+
+/* Toast Notifications */
+.toast-container {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.toast {
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 25px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: toastIn 0.3s ease-out;
+    white-space: nowrap;
+}
+
+.toast.toast-success {
+    background: rgba(39, 174, 96, 0.95);
+}
+
+.toast.toast-out {
+    animation: toastOut 0.3s ease-in forwards;
+}
+
+@keyframes toastIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes toastOut {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+}
+
+/* Selected player for quick swap */
+.player-card.selected-for-swap {
+    outline: 3px solid var(--warning);
+    outline-offset: 2px;
+    animation: pulseSelect 1s ease-in-out infinite;
+}
+
+@keyframes pulseSelect {
+    0%, 100% { outline-color: var(--warning); }
+    50% { outline-color: var(--primary); }
 }
