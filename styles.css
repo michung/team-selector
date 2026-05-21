@@ -777,6 +777,7 @@ header h1 {
 
 /* Player Card */
 .player-card {
+    position: relative;
     width: 60px;
     height: 60px;
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
@@ -847,14 +848,20 @@ header h1 {
     margin-top: 2px;
 }
 
-.goal-indicator {
-    font-size: 0.5rem;
-    margin-left: 2px;
+.player-stats-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    display: flex;
+    gap: 1px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 8px;
+    padding: 1px 3px;
 }
 
+.goal-indicator,
 .assist-indicator {
     font-size: 0.5rem;
-    margin-left: 1px;
 }
 
 .player-card .player-number {

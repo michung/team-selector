@@ -1947,16 +1947,16 @@ class TeamSelector {
         
         // Show goal indicator in live mode
         const goals = player.goals || 0;
-        const assists = player.assists || 0;
         const goalIndicator = this.state.mode === 'live' && goals > 0 
             ? `<span class="goal-indicator">${goals > 1 ? '⚽×' + goals : '⚽'}</span>` 
             : '';
-        const assistIndicator = this.state.mode === 'live' && assists > 0
-            ? `<span class="assist-indicator">${assists > 1 ? '🅰️×' + assists : '🅰️'}</span>`
+        const statsBadge = goalIndicator 
+            ? `<span class="player-stats-badge">${goalIndicator}</span>` 
             : '';
         
         card.innerHTML = `
-            <span class="player-name">${player.name}${goalIndicator}${assistIndicator}</span>
+            ${statsBadge}
+            <span class="player-name">${player.name}</span>
             <span class="player-minutes">${minuteLabel}</span>
         `;
         
