@@ -20,7 +20,9 @@ const CONFIG = {
 const DEFAULT_STATE = {
     mode: 'plan',
     isRunning: false,
-    elapsedSeconds: 0,
+    startTime: null,           // Timestamp when timer started
+    pausedElapsedMs: 0,        // Accumulated time when paused (milliseconds)
+    lastTickTime: null,        // For tracking player minute deltas
     currentInterval: 1,
     selectedPlanInterval: 1,
     players: [],
@@ -67,6 +69,8 @@ class TeamSelector {
 
         // Timer
         this.timerInterval = null;
+        this._lastDisplayedSecond = -1; // Track last rendered second for display updates
+        this._removedPlayersForSub = []; // Stack of removed players for substitution recording
 
         // Cached DOM elements (populated in init)
         this.elements = {};
@@ -155,6 +159,14 @@ class TeamSelector {
                     matchEvents: parsed.state?.matchEvents || [],
                     intervalLineups: parsed.state?.intervalLineups || {}
                 };
+                
+                // Migrate from old elapsedSeconds format to new startTime-based format
+                if (parsed.state?.elapsedSeconds !== undefined && !parsed.state?.pausedElapsedMs) {
+                    this.state.pausedElapsedMs = parsed.state.elapsedSeconds * 1000;
+                    this.state.startTime = null;
+                    this.state.lastTickTime = null;
+                    this.state.isRunning = false; // Force paused state on migration
+                }
             }
         } catch (e) {
             console.warn('Failed to load saved state, using defaults:', e);
@@ -495,6 +507,9 @@ class TeamSelector {
     }
 
     finalizeGoal(playerId, assistPlayerId, team) {
+        // Capture time once to ensure consistency between goalHistory and matchEvents
+        const goalTime = this.getElapsedSeconds();
+        
         if (team === 'us') {
             this.state.scoreUs++;
         } else {
@@ -506,7 +521,7 @@ class TeamSelector {
         this.state.goalHistory.push({
             playerId: playerId,
             assistPlayerId: assistPlayerId,
-            time: this.state.elapsedSeconds,
+            time: goalTime,
             team: team
         });
 
@@ -533,7 +548,7 @@ class TeamSelector {
         // Add to match events
         this.state.matchEvents.push({
             type: 'goal',
-            time: this.state.elapsedSeconds,
+            time: goalTime,
             team: team,
             scorer: scorerName,
             assist: assistName,
@@ -599,44 +614,70 @@ class TeamSelector {
     // ==================== TIMER FUNCTIONS ====================
 
     toggleSpeed() {
+        // When changing speed, we need to recalculate pausedElapsedMs based on current speed
+        // then apply the new speed going forward
+        if (this.state.isRunning) {
+            const now = Date.now();
+            const runningMs = (now - this.state.startTime) * this.state.speedMultiplier;
+            this.state.pausedElapsedMs += runningMs;
+            this.state.startTime = now;
+        }
+        
         const currentIndex = CONFIG.SPEEDS.indexOf(this.state.speedMultiplier);
         this.state.speedMultiplier = CONFIG.SPEEDS[(currentIndex + 1) % CONFIG.SPEEDS.length];
-        
-        // Restart timer with new speed if running
-        if (this.state.isRunning) {
-            clearInterval(this.timerInterval);
-            this.startTimerInterval();
-        }
         
         this.updateTimerDisplay();
         this.saveState();
     }
 
+    // Calculate elapsed seconds based on start time (handles device sleep)
+    getElapsedSeconds() {
+        if (!this.state.isRunning) {
+            return Math.floor(this.state.pausedElapsedMs / 1000);
+        }
+        const now = Date.now();
+        const runningMs = (now - this.state.startTime) * this.state.speedMultiplier;
+        return Math.floor((this.state.pausedElapsedMs + runningMs) / 1000);
+    }
+
     startTimerInterval() {
-        const interval = 1000 / this.state.speedMultiplier;
+        // Update display frequently - time is calculated from startTime, not incremented
         this.timerInterval = setInterval(() => {
-            this.state.elapsedSeconds++;
             this.updateTimerDisplay();
             this.updatePlayerMinutes();
             this.checkIntervalChange();
-            this.saveState();
-        }, interval);
+            // Save state periodically (every ~10 seconds of game time)
+            const elapsed = this.getElapsedSeconds();
+            if (elapsed % 10 === 0) {
+                this.saveState();
+            }
+        }, 200); // Update every 200ms for responsive display
     }
 
     startTimer() {
         if (this.state.isRunning) return;
 
         this.state.isRunning = true;
+        this.state.startTime = Date.now();
+        this.state.lastTickTime = Date.now();
         this.elements.startBtn.disabled = true;
         this.elements.pauseBtn.disabled = false;
 
         this.startTimerInterval();
+        this.saveState();
     }
 
     pauseTimer() {
         if (!this.state.isRunning) return;
 
+        // Accumulate elapsed time before pausing
+        const now = Date.now();
+        const runningMs = (now - this.state.startTime) * this.state.speedMultiplier;
+        this.state.pausedElapsedMs += runningMs;
+        
         this.state.isRunning = false;
+        this.state.startTime = null;
+        this.state.lastTickTime = null;
         this.elements.startBtn.disabled = false;
         this.elements.pauseBtn.disabled = true;
 
@@ -708,8 +749,9 @@ class TeamSelector {
     }
 
     updateTimerDisplay() {
-        const minutes = Math.floor(this.state.elapsedSeconds / 60);
-        const seconds = this.state.elapsedSeconds % 60;
+        const totalSeconds = this.getElapsedSeconds();
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
         const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         const speedStr = this.state.speedMultiplier > 1 ? ` (${this.state.speedMultiplier}x)` : '';
         this.elements.currentTime.textContent = timeStr + speedStr;
@@ -725,7 +767,7 @@ class TeamSelector {
 
     checkIntervalChange() {
         const intervalDuration = (this.settings.matchDuration * 60) / this.settings.intervalCount;
-        const expectedInterval = Math.floor(this.state.elapsedSeconds / intervalDuration) + 1;
+        const expectedInterval = Math.floor(this.getElapsedSeconds() / intervalDuration) + 1;
         
         if (expectedInterval > this.state.currentInterval && 
             this.state.currentInterval < this.settings.intervalCount) {
@@ -765,7 +807,9 @@ class TeamSelector {
     resetMatch() {
         if (confirm('Reset the match? This will reset the timer, scores, and player minutes.')) {
             this.pauseTimer();
-            this.state.elapsedSeconds = 0;
+            this.state.startTime = null;
+            this.state.pausedElapsedMs = 0;
+            this.state.lastTickTime = null;
             this.state.currentInterval = 1;
             this.state.scoreUs = 0;
             this.state.scoreThem = 0;
@@ -841,23 +885,59 @@ class TeamSelector {
     }
 
     updatePlayerMinutes() {
-        // Add a second to each player on pitch (use live interval)
+        const now = Date.now();
+        const lastTick = this.state.lastTickTime || now;
+        const deltaMs = (now - lastTick) * this.state.speedMultiplier;
+        const deltaMinutes = deltaMs / 60000; // Convert ms to minutes
+        
+        this.state.lastTickTime = now;
+        
+        // Sanity check: skip if delta is negative or too large (e.g., device woke from sleep)
+        // Max 5 seconds worth of time per tick.
+        if (deltaMinutes < 0 || deltaMinutes > (5 / 60)) return;
+        
+        // Skip if no time has passed (avoid unnecessary processing)
+        if (deltaMinutes === 0) return;
+        
+        // Add time delta to each player on pitch (use live interval)
         const currentLineup = this.state.intervalLineups[this.state.currentInterval] || [];
         currentLineup.forEach(playerId => {
             if (playerId !== null) {
                 const player = this.getPlayerById(playerId);
                 if (player) {
-                    player.minutesPlayed += 1/60; // Convert seconds to minutes
+                    player.minutesPlayed += deltaMinutes;
                 }
             }
         });
 
-        // Update display every 10 seconds
-        if (this.state.elapsedSeconds % 10 === 0) {
-            this.renderStats();
-            this.renderPitch();
-            this.renderBench();
+        // Update minutes display without full re-render (to avoid interrupting user interactions)
+        const elapsed = this.getElapsedSeconds();
+        if (this._lastDisplayedSecond !== elapsed) {
+            this._lastDisplayedSecond = elapsed;
+            // Update minutes labels in-place instead of full re-render
+            this.updateMinutesDisplay();
+            // Only do full stats update every 10 seconds
+            if (elapsed % 10 === 0) {
+                this.renderStats();
+            }
         }
+    }
+
+    // Update just the minutes display on player cards without recreating elements
+    updateMinutesDisplay() {
+        document.querySelectorAll('.player-card').forEach(card => {
+            const playerId = parseInt(card.dataset.playerId);
+            const player = this.getPlayerById(playerId);
+            if (player) {
+                const minutesEl = card.querySelector('.player-minutes');
+                if (minutesEl) {
+                    const minutes = Math.floor(player.minutesPlayed);
+                    const plannedMinutes = this.getPlannedMinutes(player.id);
+                    const minuteLabel = this.state.mode === 'plan' ? `${plannedMinutes}'` : `${minutes}'`;
+                    minutesEl.textContent = minuteLabel;
+                }
+            }
+        });
     }
 
     // ==================== DRAG AND DROP ====================
@@ -876,34 +956,65 @@ class TeamSelector {
                 const pitchPlayer = pitchPlayerId ? this.getPlayerById(pitchPlayerId) : null;
                 this.showToast(`${benchPlayer?.name} ↔ ${pitchPlayer?.name || 'empty'}`);
                 
+                // Record substitution in live mode
+                if (this.state.mode === 'live' && pitchPlayer) {
+                    this.state.matchEvents.push({
+                        type: 'sub',
+                        time: this.getElapsedSeconds(),
+                        playerIn: benchPlayer ? benchPlayer.name : 'Unknown',
+                        playerOut: pitchPlayer.name
+                    });
+                    this.renderMatchEvents();
+                }
+                
                 this.clearBenchSelection();
                 this.renderPitch();
                 this.renderBench();
                 this.renderStats();
+            } else if (this.state.mode === 'live') {
+                // In live mode, show hint to select bench player first
+                this.showToast('Select a sub first', 'default', 1500);
             } else {
+                // In plan mode, allow removing player from pitch
                 this.removePlayerFromPitch(slotIndex);
             }
         } else if (location === 'bench') {
-            // Check if there's an empty slot on the pitch
-            const lineup = this.getCurrentLineup();
-            const hasEmptySlot = lineup.some(id => id === null);
-            
-            if (hasEmptySlot) {
-                // Auto-fill the empty slot with this player
-                this.addBenchPlayerToPitch(playerId);
-            } else {
-                // No empty slots - toggle selection for quick swap
+            if (this.state.mode === 'live') {
+                // In live mode, always use quick swap selection
                 if (this.selectedBenchPlayer === playerId) {
                     // Deselect
                     this.clearBenchSelection();
                     this.renderBench();
                 } else {
-                    // Select this player (or switch selection)
+                    // Select this player for swap
                     this.clearBenchSelection();
                     this.selectedBenchPlayer = playerId;
                     const card = document.querySelector(`.player-card[data-player-id="${playerId}"]`);
                     if (card) card.classList.add('selected-for-swap');
                     this.showToast('Tap a pitch player to swap', 'default', 1500);
+                }
+            } else {
+                // In plan mode, check if there's an empty slot on the pitch
+                const lineup = this.getCurrentLineup();
+                const hasEmptySlot = lineup.some(id => id === null);
+                
+                if (hasEmptySlot) {
+                    // Auto-fill the empty slot with this player
+                    this.addBenchPlayerToPitch(playerId);
+                } else {
+                    // No empty slots - toggle selection for quick swap
+                    if (this.selectedBenchPlayer === playerId) {
+                        // Deselect
+                        this.clearBenchSelection();
+                        this.renderBench();
+                    } else {
+                        // Select this player (or switch selection)
+                        this.clearBenchSelection();
+                        this.selectedBenchPlayer = playerId;
+                        const card = document.querySelector(`.player-card[data-player-id="${playerId}"]`);
+                        if (card) card.classList.add('selected-for-swap');
+                        this.showToast('Tap a pitch player to swap', 'default', 1500);
+                    }
                 }
             }
         }
@@ -1075,6 +1186,18 @@ class TeamSelector {
                 const player = this.getPlayerById(playerId);
                 this.showToast(`${player?.name} → pitch`);
                 
+                // Record substitution in live mode if a player was just removed
+                if (this.state.mode === 'live' && this._removedPlayersForSub.length > 0) {
+                    const removedPlayer = this._removedPlayersForSub.shift(); // Take first removed (FIFO)
+                    this.state.matchEvents.push({
+                        type: 'sub',
+                        time: this.getElapsedSeconds(),
+                        playerIn: player ? player.name : 'Unknown',
+                        playerOut: removedPlayer.name
+                    });
+                    this.renderMatchEvents();
+                }
+                
                 this.renderPitch();
                 this.renderBench();
                 this.renderStats();
@@ -1089,9 +1212,18 @@ class TeamSelector {
     removePlayerFromPitch(slotIndex) {
         this.justRemovedPlayer = true;
         const lineup = [...this.getCurrentLineup()];
-        const removedPlayer = lineup[slotIndex];
-        if (removedPlayer) {
-            this.removedPlayersStack.push(removedPlayer); // Add to stack for undo
+        const removedPlayerId = lineup[slotIndex];
+        const removedPlayer = removedPlayerId ? this.getPlayerById(removedPlayerId) : null;
+        if (removedPlayerId) {
+            this.removedPlayersStack.push(removedPlayerId); // Add to stack for undo
+            // Track the removed player for substitution recording
+            if (this.state.mode === 'live' && removedPlayer) {
+                this._removedPlayersForSub.push({
+                    id: removedPlayerId,
+                    name: removedPlayer.name,
+                    time: this.getElapsedSeconds()
+                });
+            }
         }
         lineup[slotIndex] = null;
         this.setCurrentLineup(lineup);
@@ -1253,7 +1385,7 @@ class TeamSelector {
                 
                 this.state.matchEvents.push({
                     type: 'sub',
-                    time: this.state.elapsedSeconds,
+                    time: this.getElapsedSeconds(),
                     playerIn: playerIn ? playerIn.name : 'Unknown',
                     playerOut: playerOut ? playerOut.name : 'Empty slot'
                 });
@@ -1291,7 +1423,7 @@ class TeamSelector {
             
             this.state.matchEvents.push({
                 type: 'sub',
-                time: this.state.elapsedSeconds,
+                time: this.getElapsedSeconds(),
                 playerIn: playerIn ? playerIn.name : 'Unknown',
                 playerOut: playerOut ? playerOut.name : 'Unknown'
             });
@@ -1591,45 +1723,99 @@ class TeamSelector {
             return;
         }
         
-        // Show events in reverse order (newest first)
-        const events = [...this.state.matchEvents].reverse();
-        
-        events.forEach((event, reversedIndex) => {
-            const originalIndex = this.state.matchEvents.length - 1 - reversedIndex;
-            const eventDiv = document.createElement('div');
-            eventDiv.className = `match-event event-${event.type}`;
-            
-            const minutes = Math.floor(event.time / 60);
-            const timeStr = `${minutes}'`;
-            
+        // Calculate running score for each goal event
+        let runningScoreUs = 0;
+        let runningScoreThem = 0;
+        const eventsWithScore = this.state.matchEvents.map(event => {
             if (event.type === 'goal') {
+                if (event.team === 'us') {
+                    runningScoreUs++;
+                } else {
+                    runningScoreThem++;
+                }
+                return { ...event, calculatedScore: `${runningScoreUs} - ${runningScoreThem}` };
+            }
+            return event;
+        });
+        
+        // Group subs by minute, keep goals separate
+        const groupedEvents = [];
+        let currentSubGroup = null;
+        
+        eventsWithScore.forEach((event, index) => {
+            const minutes = Math.floor(event.time / 60);
+            
+            if (event.type === 'sub') {
+                // Check if we can add to existing sub group (same minute)
+                if (currentSubGroup && currentSubGroup.minutes === minutes) {
+                    currentSubGroup.subs.push({ ...event, originalIndex: index });
+                } else {
+                    // Start new sub group
+                    if (currentSubGroup) groupedEvents.push(currentSubGroup);
+                    currentSubGroup = {
+                        type: 'sub-group',
+                        minutes: minutes,
+                        subs: [{ ...event, originalIndex: index }]
+                    };
+                }
+            } else {
+                // Non-sub event - flush any pending sub group first
+                if (currentSubGroup) {
+                    groupedEvents.push(currentSubGroup);
+                    currentSubGroup = null;
+                }
+                groupedEvents.push({ ...event, originalIndex: index });
+            }
+        });
+        
+        // Don't forget the last sub group
+        if (currentSubGroup) groupedEvents.push(currentSubGroup);
+        
+        // Render in reverse order (newest first)
+        const reversedEvents = [...groupedEvents].reverse();
+        
+        reversedEvents.forEach((event) => {
+            const eventDiv = document.createElement('div');
+            
+            if (event.type === 'sub-group') {
+                eventDiv.className = 'match-event event-sub';
+                const timeStr = `${event.minutes}'`;
+                
+                const subsHtml = event.subs.map(sub => `
+                    <div class="sub-pair">
+                        <span class="sub-in">↑ ${sub.playerIn}</span>
+                        <span class="sub-out">↓ ${sub.playerOut}</span>
+                    </div>
+                `).join('');
+                
+                eventDiv.innerHTML = `
+                    <span class="event-time">${timeStr}</span>
+                    <span class="event-icon">🔄</span>
+                    <span class="event-detail event-detail-subs">
+                        ${subsHtml}
+                    </span>
+                `;
+            } else if (event.type === 'goal') {
+                eventDiv.className = 'match-event event-goal';
+                const minutes = Math.floor(event.time / 60);
+                const timeStr = `${minutes}'`;
                 const icon = event.team === 'us' ? '⚽' : '🔴';
                 const assistText = event.assist ? ` (assist: ${event.assist})` : '';
+                
                 eventDiv.innerHTML = `
                     <span class="event-time">${timeStr}</span>
                     <span class="event-icon">${icon}</span>
                     <span class="event-detail">
                         <strong>GOAL</strong> - ${event.scorer}${assistText}
-                        <span class="event-score">${event.score}</span>
+                        <span class="event-score">${event.calculatedScore}</span>
                     </span>
-                    <button class="event-delete-btn" data-index="${originalIndex}">✕</button>
+                    <button class="event-delete-btn" data-index="${event.originalIndex}">✕</button>
                 `;
-            } else if (event.type === 'sub') {
-                eventDiv.innerHTML = `
-                    <span class="event-time">${timeStr}</span>
-                    <span class="event-icon">🔄</span>
-                    <span class="event-detail">
-                        <span class="sub-in">↑ ${event.playerIn}</span>
-                        <span class="sub-out">↓ ${event.playerOut}</span>
-                    </span>
-                    <button class="event-delete-btn" data-index="${originalIndex}">✕</button>
-                `;
-            }
-            
-            // Add delete handler
-            const deleteBtn = eventDiv.querySelector('.event-delete-btn');
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => this.deleteMatchEvent(originalIndex));
+                
+                const deleteBtn = eventDiv.querySelector('.event-delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', () => this.deleteMatchEvent(event.originalIndex));
+                }
             }
             
             this.elements.eventsLog.appendChild(eventDiv);

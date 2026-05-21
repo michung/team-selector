@@ -1062,6 +1062,28 @@ header h1 {
     font-size: 0.8rem;
 }
 
+.event-detail-subs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+
+.sub-pair {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sub-pair .sub-in,
+.sub-pair .sub-out {
+    flex: 1;
+}
+
+.sub-pair .event-delete-btn {
+    margin-left: auto;
+}
+
 /* Roster Section */
 .roster-section {
     background: rgba(255, 255, 255, 0.05);
