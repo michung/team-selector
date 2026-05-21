@@ -228,6 +228,7 @@ class TeamSelector {
         }
 
         this.saveState();
+        this.elements.intervalCount.textContent = newCount;
         this.renderIntervalTabs();
         this.renderPitch();
         this.renderBench();
@@ -316,12 +317,10 @@ class TeamSelector {
         document.getElementById('interval-dec').addEventListener('click', () => {
             const newCount = Math.max(CONFIG.INTERVAL_LIMITS.MIN, this.settings.intervalCount - 1);
             this.updateIntervalCount(newCount);
-            this.elements.intervalCount.textContent = newCount;
         });
         document.getElementById('interval-inc').addEventListener('click', () => {
             const newCount = Math.min(CONFIG.INTERVAL_LIMITS.MAX, this.settings.intervalCount + 1);
             this.updateIntervalCount(newCount);
-            this.elements.intervalCount.textContent = newCount;
         });
 
         // Timer controls
