@@ -139,7 +139,7 @@ export class EventManager {
             : `🔴 Goal - Opponent`;
         this.app.showToast(goalText, 'success', 2000, () => this.undoLastGoal());
 
-        this.app.updateScoreDisplay();
+        this.app.updateScoreDisplay(team);
         this.renderMatchEvents();
         this.app.renderPitch();
         this.app.renderBench();
@@ -323,9 +323,67 @@ export class EventManager {
                     <strong>GOAL</strong> - ${event.scorer}${assistText}
                     <span class="event-score">${event.calculatedScore || event.score}</span>
                 </span>
+                <button class="event-delete-btn" data-index="${event.originalIndex}">✕</button>
             `;
+            
+            const deleteBtn = div.querySelector('.event-delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => this.deleteMatchEvent(event.originalIndex));
+            }
         }
         
         return div;
+    }
+
+    /**
+     * Delete a match event (goal)
+     */
+    deleteMatchEvent(index) {
+        const event = this.state.matchEvents[index];
+        if (!event) return;
+        
+        if (event.type === 'goal') {
+            // Find corresponding goal in goalHistory and remove it
+            const goalIndex = this.state.goalHistory.findIndex(g => 
+                g.time === event.time && 
+                (event.team === 'them' ? g.team === 'them' : g.team === 'us')
+            );
+            
+            if (goalIndex !== -1) {
+                const goal = this.state.goalHistory[goalIndex];
+                
+                // Decrement score
+                if (goal.team === 'us') {
+                    this.state.scoreUs = Math.max(0, this.state.scoreUs - 1);
+                } else {
+                    this.state.scoreThem = Math.max(0, this.state.scoreThem - 1);
+                }
+                
+                // Remove goal from player
+                if (goal.playerId) {
+                    const player = this.app.getPlayerById(goal.playerId);
+                    if (player && player.goals > 0) {
+                        player.goals--;
+                    }
+                }
+                
+                // Remove assist from player
+                if (goal.assistPlayerId) {
+                    const assister = this.app.getPlayerById(goal.assistPlayerId);
+                    if (assister && assister.assists > 0) {
+                        assister.assists--;
+                    }
+                }
+                
+                this.state.goalHistory.splice(goalIndex, 1);
+            }
+            
+            this.app.updateScoreDisplay();
+        }
+        
+        // Remove the event
+        this.state.matchEvents.splice(index, 1);
+        this.renderMatchEvents();
+        this.app.saveState();
     }
 }

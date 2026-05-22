@@ -70,6 +70,7 @@ export class TeamSelector {
         this.setupEventListeners();
         this.drag.setupDropZones();
         this.setupSwipeGestures();
+        this.setupSwipeToSwitchMode();
         this.renderIntervalTabs();
         this.renderPitch();
         this.renderBench();
@@ -120,9 +121,26 @@ export class TeamSelector {
     }
 
     /**
-     * Load state from storage
+     * Load state from storage or from shared URL
      */
     loadState() {
+        // Check for shared plan in URL hash
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+            const sharedPlan = this.decodePlan(hash);
+            if (sharedPlan) {
+                this.state.players = sharedPlan.players;
+                this.state.intervalLineups = sharedPlan.intervalLineups;
+                this.settings.matchDuration = sharedPlan.matchDuration;
+                this.settings.intervalCount = sharedPlan.intervalCount;
+                // Clear the hash so refreshing doesn't re-import
+                history.replaceState(null, '', window.location.pathname);
+                this.showToast('Plan imported!');
+                this.saveState();
+                return;
+            }
+        }
+
         const { state, settings } = this.storage.load();
         this.state = state;
         this.settings = settings;
@@ -223,11 +241,22 @@ export class TeamSelector {
     }
 
     /**
-     * Update score display
+     * Update score display with optional flash effect
      */
-    updateScoreDisplay() {
-        document.getElementById('score-us').textContent = this.state.scoreUs;
-        document.getElementById('score-them').textContent = this.state.scoreThem;
+    updateScoreDisplay(flashTeam = null) {
+        const scoreUs = document.getElementById('score-us');
+        const scoreThem = document.getElementById('score-them');
+        
+        scoreUs.textContent = this.state.scoreUs;
+        scoreThem.textContent = this.state.scoreThem;
+        
+        if (flashTeam === 'us') {
+            scoreUs.classList.add('flash-green');
+            setTimeout(() => scoreUs.classList.remove('flash-green'), 500);
+        } else if (flashTeam === 'them') {
+            scoreThem.classList.add('flash-red');
+            setTimeout(() => scoreThem.classList.remove('flash-red'), 500);
+        }
     }
 
     // ==================== INTERVAL MANAGEMENT ====================
@@ -263,15 +292,12 @@ export class TeamSelector {
 
     // Timer
     toggleTimer() { return this.timer.toggle(); }
-    startTimer() { return this.timer.start(); }
-    pauseTimer() { return this.timer.pause(); }
     stopMatch() { return this.timer.stop(); }
 
     // Events  
     recordGoal(playerId, team) { return this.events.recordGoal(playerId, team); }
     recordSubstitution(playerIn, playerOut) { return this.events.recordSubstitution(playerIn, playerOut); }
     skipAssist() { return this.events.skipAssist(); }
-    renderMatchEvents() { return this.events.renderMatchEvents(); }
 
     // ==================== PLAYER MINUTES ====================
 
@@ -359,7 +385,7 @@ export class TeamSelector {
 
         // Subs per interval steppers
         document.getElementById('subs-dec').addEventListener('click', () => {
-            const newCount = Math.max(1, this.settings.subsPerInterval - 1);
+            const newCount = Math.max(0, this.settings.subsPerInterval - 1);
             this.updateSubsPerInterval(newCount);
         });
         document.getElementById('subs-inc').addEventListener('click', () => {
@@ -469,6 +495,54 @@ export class TeamSelector {
                     this.selectInterval(this.state.selectedPlanInterval - 1);
                     this.showToast(`Interval ${this.state.selectedPlanInterval}`);
                 }
+            }
+        }, { passive: true });
+    }
+
+    // Setup swipe to switch between Plan and Live modes
+    setupSwipeToSwitchMode() {
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        
+        const container = document.getElementById('app');
+        if (!container) return;
+        
+        container.addEventListener('touchstart', (e) => {
+            // Ignore if touching a player card (let drag handler manage those)
+            if (e.target.closest('.player-card')) return;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchStartTime = Date.now();
+        }, { passive: true });
+        
+        container.addEventListener('touchend', (e) => {
+            if (!touchStartTime) return;
+            
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            const elapsed = Date.now() - touchStartTime;
+            
+            // Reset
+            touchStartTime = 0;
+            
+            // Must be a quick horizontal swipe (not a slow drag or vertical scroll)
+            const minSwipeDistance = 80;
+            const maxSwipeTime = 300;
+            const maxVerticalDrift = 100;
+            
+            if (elapsed > maxSwipeTime) return;
+            if (Math.abs(deltaY) > maxVerticalDrift) return;
+            if (Math.abs(deltaX) < minSwipeDistance) return;
+            
+            if (deltaX < 0 && this.state.mode === MODES.PLAN) {
+                // Swipe left: Plan → Live
+                this.setMode(MODES.LIVE);
+            } else if (deltaX > 0 && this.state.mode === MODES.LIVE) {
+                // Swipe right: Live → Plan
+                this.setMode(MODES.PLAN);
             }
         }, { passive: true });
     }
@@ -810,13 +884,9 @@ export class TeamSelector {
 
     updateSubsDisplay() {
         const maxSubs = this.getMaxBenchSize();
-        // Initialize to max if unset (0) or clamp if exceeds current max
-        if (this.settings.subsPerInterval === 0 || this.settings.subsPerInterval > maxSubs) {
+        // Initialize to max if unset (-1) or clamp if exceeds current max
+        if (this.settings.subsPerInterval === -1 || this.settings.subsPerInterval > maxSubs) {
             this.settings.subsPerInterval = maxSubs;
-        }
-        // Ensure at least 1 if there's a bench
-        if (maxSubs > 0 && this.settings.subsPerInterval < 1) {
-            this.settings.subsPerInterval = 1;
         }
         if (this.elements.subsCount) {
             this.elements.subsCount.textContent = this.settings.subsPerInterval;

@@ -181,9 +181,13 @@ export class DragManager {
             const dx = Math.abs(touch.clientX - startX);
             const dy = Math.abs(touch.clientY - startY);
             
+            // Cancel long press on ANY movement to prevent accidental goals while dragging
+            if (dx > 3 || dy > 3) {
+                cancelLongPress();
+            }
+            
             if (dx > CONFIG.DRAG_THRESHOLD || dy > CONFIG.DRAG_THRESHOLD) {
                 touchMoved = true;
-                cancelLongPress();
                 e.preventDefault();
                 element.classList.add('dragging');
                 this.handleTouchMove(touch);
@@ -197,7 +201,8 @@ export class DragManager {
             
             if (longPressTriggered) {
                 e.preventDefault();
-                longPressTriggered = false;
+                // Delay reset so click event (which fires after touchend) still sees longPressTriggered=true
+                setTimeout(() => { longPressTriggered = false; }, 100);
                 this.endDrag();
                 return;
             }
