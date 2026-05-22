@@ -157,6 +157,7 @@ class TeamSelector {
             hintPitch: document.getElementById('hint-pitch'),
             hintPin: document.getElementById('hint-pin'),
             hintScore: document.getElementById('hint-score'),
+            pitchActions: document.getElementById('pitch-actions'),
             swipeHintLeft: document.getElementById('swipe-hint-left'),
             swipeHintRight: document.getElementById('swipe-hint-right'),
             rosterList: document.getElementById('roster-list'),
@@ -465,6 +466,20 @@ class TeamSelector {
         });
         this.elements.hintPin?.addEventListener('click', () => {
             this.elements.hintPin.classList.add('hidden');
+        });
+
+        // Handle device wake from sleep - update timer immediately
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && this.state.isRunning) {
+                // Check if match should have ended while sleeping
+                if (this.getElapsedSeconds() >= this.matchDurationSeconds) {
+                    this.pauseTimer();
+                    this.showToast('Full time!', 'success');
+                } else {
+                    this.updateTimerDisplay();
+                    this.checkIntervalChange();
+                }
+            }
         });
 
         // Swipe left/right to switch between Plan and Live modes
@@ -1003,6 +1018,7 @@ class TeamSelector {
         
         // Show swipe hints in plan mode, live hints in live mode
         if (mode === 'plan') {
+            this.elements.pitchActions?.classList.remove('hidden');
             this.elements.swipeHintLeft?.classList.remove('hidden');
             this.elements.swipeHintRight?.classList.remove('hidden');
             this.elements.hintPin?.classList.remove('hidden');
@@ -1014,6 +1030,7 @@ class TeamSelector {
                 this.elements.hintPin?.classList.add('hidden');
             }, 5000);
         } else {
+            this.elements.pitchActions?.classList.add('hidden');
             // Initialize/refresh live lineup from interval 1 if match hasn't started
             const matchNotStarted = !this.state.startTime && this.state.pausedElapsedMs === 0;
             if (!this.state.liveLineup || matchNotStarted) {
