@@ -17,6 +17,7 @@ export class DragManager {
         this._removedPlayersForSub = [];
         this.justAddedPlayer = false;
         this.justRemovedPlayer = false;
+        this.longPressJustTriggered = false;
     }
 
     get state() { return this.app.state; }
@@ -102,13 +103,26 @@ export class DragManager {
             if (location !== 'pitch') return;
             if (this.state.mode === 'live') {
                 longPressTimer = setTimeout(() => {
+                    longPressTriggered = true;
+                    this.longPressJustTriggered = true;
                     triggerGoal();
                     longPressTimer = null;
+                    // Delay reset so click event still sees flag=true
+                    setTimeout(() => { 
+                        longPressTriggered = false;
+                        this.longPressJustTriggered = false;
+                    }, 500);
                 }, CONFIG.LONG_PRESS_MS);
             } else if (this.state.mode === 'plan') {
                 longPressTimer = setTimeout(() => {
+                    longPressTriggered = true;
+                    this.longPressJustTriggered = true;
                     triggerPinToggle();
                     longPressTimer = null;
+                    setTimeout(() => { 
+                        longPressTriggered = false;
+                        this.longPressJustTriggered = false;
+                    }, 500);
                 }, CONFIG.LONG_PRESS_MS);
             }
         };
@@ -123,7 +137,11 @@ export class DragManager {
         // Mouse events
         element.setAttribute('draggable', 'true');
         
-        element.addEventListener('mousedown', () => startLongPress());
+        element.addEventListener('mousedown', () => {
+            longPressTriggered = false;
+            this.longPressJustTriggered = false;
+            startLongPress();
+        });
         element.addEventListener('mouseup', () => cancelLongPress());
         element.addEventListener('mouseleave', () => cancelLongPress());
         
@@ -148,14 +166,16 @@ export class DragManager {
         // Click handler
         element.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (isDragging || longPressTriggered) return;
+            if (isDragging || longPressTriggered || this.wasDragging || this.longPressJustTriggered) return;
             this.handlePlayerTap(playerId, location, slotIndex);
         });
 
         // Touch events
         element.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
             touchMoved = false;
             longPressTriggered = false;
+            this.longPressJustTriggered = false;
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             this.startDrag(playerId, location, slotIndex);
@@ -163,14 +183,23 @@ export class DragManager {
             // Add pressed state class (more reliable than :active on touch)
             element.classList.add('pressed');
             
-            if (location === 'pitch') {
+            // Only start long press for goal/pin if:
+            // - On pitch
+            // - No bench player selected for swap
+            // - Not already dragging another player
+            if (location === 'pitch' && !this.selectedBenchPlayer && !this.dragState.draggingPlayer) {
                 longPressTimer = setTimeout(() => {
-                    longPressTriggered = true;
-                    element.classList.remove('pressed');
-                    if (this.state.mode === 'live') {
-                        triggerGoal();
-                    } else if (this.state.mode === 'plan') {
-                        triggerPinToggle();
+                    // Double-check we haven't started moving (touchMoved is set when drag threshold exceeded)
+                    if (!touchMoved) {
+                        longPressTriggered = true;
+                        this.longPressJustTriggered = true;
+                        // Remove pressed state before animation to prevent transform conflict
+                        element.classList.remove('pressed');
+                        if (this.state.mode === 'live') {
+                            triggerGoal();
+                        } else if (this.state.mode === 'plan') {
+                            triggerPinToggle();
+                        }
                     }
                 }, CONFIG.LONG_PRESS_MS);
             }
@@ -201,8 +230,13 @@ export class DragManager {
             
             if (longPressTriggered) {
                 e.preventDefault();
-                // Delay reset so click event (which fires after touchend) still sees longPressTriggered=true
-                setTimeout(() => { longPressTriggered = false; }, 100);
+                e.stopPropagation();
+                // Use class property to reliably block click events
+                this.longPressJustTriggered = true;
+                setTimeout(() => { 
+                    longPressTriggered = false; 
+                    this.longPressJustTriggered = false;
+                }, 500);
                 this.endDrag();
                 return;
             }

@@ -3,6 +3,16 @@
     margin: 0;
     padding: 0;
     touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* Allow text selection in input fields */
+input, textarea {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
 }
 
 :root {
@@ -310,7 +320,11 @@ header h1 {
     display: flex;
     gap: 6px;
     min-width: 80px;
-    justify-content: center;
+}
+
+.header-controls .timer-buttons .btn {
+    flex: 1;
+    padding: 8px 0;
 }
 
 /* Mode Tabs */
@@ -669,13 +683,19 @@ header h1 {
 
 /* Player card goal indicator */
 .player-card.scoring {
-    animation: goalPulse 0.5s ease;
+    animation: goalPulse 0.5s ease-out forwards;
+    transition: none !important; /* Prevent transition from interfering with animation */
+}
+
+/* Scoring overrides pressed state */
+.player-card.scoring.pressed {
+    transform: none; /* Let animation control transform */
 }
 
 @keyframes goalPulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.2); background: var(--success); }
-    100% { transform: scale(1); }
+    0% { transform: scale(1.05); box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
+    40% { transform: scale(1.2); box-shadow: 0 0 0 12px rgba(255, 215, 0, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
 }
 
 /* Position Slots - 3-4-1 Formation */
@@ -844,16 +864,6 @@ header h1 {
     font-size: 0.9rem;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     white-space: nowrap;
-}
-
-.player-card.scoring {
-    animation: goalScored 0.5s ease-out;
-}
-
-@keyframes goalScored {
-    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
-    50% { transform: scale(1.2); box-shadow: 0 0 0 15px rgba(255, 215, 0, 0); }
-    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
 }
 
 .player-card .player-name {
@@ -1088,6 +1098,16 @@ header h1 {
     background: rgba(46, 204, 113, 0.1);
 }
 
+.match-event.event-kickoff {
+    border-left-color: var(--primary);
+    background: rgba(52, 152, 219, 0.1);
+}
+
+.match-event.event-fulltime {
+    border-left-color: var(--warning);
+    background: rgba(243, 156, 18, 0.1);
+}
+
 .match-event.event-sub {
     border-left-color: var(--warning);
     background: rgba(241, 196, 15, 0.1);
@@ -1294,6 +1314,9 @@ header h1 {
     z-index: 20;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     transition: transform 0.15s ease, background 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
 }
 
 .subs-icon.visible {
@@ -1407,6 +1430,39 @@ header h1 {
 .sub-change.past {
     opacity: 0.5;
     border-left-color: rgba(241, 196, 15, 0.4);
+}
+
+/* Subs popup header */
+.subs-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: white;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.subs-time {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Sub changes in popup */
+.subs-popup .sub-change {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+}
+
+.subs-popup .sub-change:last-child {
+    margin-bottom: 0;
 }
 
 .subs-popup-header {

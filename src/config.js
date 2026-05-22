@@ -40,6 +40,8 @@ export const DEFAULT_STATE = {
     pausedElapsedMs: 0,
     lastTickTime: null,
     fullTimeShown: false,
+    matchStarted: false,
+    matchEnded: false,
     currentInterval: 1,
     lastAppliedSubsInterval: 0,
     selectedPlanInterval: 1,

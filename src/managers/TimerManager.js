@@ -66,9 +66,13 @@ export class TimerManager {
     start() {
         if (this.state.isRunning) return;
 
+        // Record kick off if this is the first start (not a resume)
+        const isKickOff = this.state.pausedElapsedMs === 0;
+
         this.state.isRunning = true;
         this.state.startTime = Date.now();
         this.state.lastTickTime = Date.now();
+        this.state.matchStarted = true;
         
         this.elements.playPauseBtn.textContent = '⏸';
         this.elements.playPauseBtn.classList.remove('btn-primary');
@@ -85,6 +89,10 @@ export class TimerManager {
                 }
             }
         });
+
+        if (isKickOff) {
+            this.app.events.recordKickOff();
+        }
 
         this.startTimerInterval();
         this.app.saveState();
@@ -123,6 +131,11 @@ export class TimerManager {
         if (this.state.isRunning) {
             this.pause();
         }
+        
+        this.state.matchEnded = true;
+        
+        // Record full time event
+        this.app.events.recordFullTime();
         
         const finalScore = `${this.state.scoreUs} - ${this.state.scoreThem}`;
         this.app.showToast(`Full time! Final score: ${finalScore}`, 'success', 3000);

@@ -192,6 +192,15 @@ export class TeamSelector {
         return this.state.players.filter(p => !lineup.includes(p.id));
     }
 
+    /**
+     * Check if match is active (started and not ended)
+     */
+    isMatchActive() {
+        // Consider match started if flag is set OR timer is running/has elapsed time (for backwards compatibility)
+        const hasStarted = this.state.matchStarted || this.state.isRunning || this.state.pausedElapsedMs > 0;
+        return hasStarted && !this.state.matchEnded;
+    }
+
     // ==================== TIME UTILITIES ====================
 
     getElapsedSeconds() {
@@ -302,9 +311,38 @@ export class TeamSelector {
     // ==================== PLAYER MINUTES ====================
 
     updatePlayerMinutes() {
-        // Update display only - actual minutes calculated on-demand
-        this.renderPitch();
-        this.renderBench();
+        // Update only the minutes text elements, not full re-render
+        const currentElapsed = this.getElapsedSeconds();
+        
+        // Update pitch player minutes
+        document.querySelectorAll('.pitch .player-card').forEach(card => {
+            const playerId = parseInt(card.dataset.playerId);
+            const player = this.getPlayerById(playerId);
+            if (player) {
+                const mins = this.getDisplayMinutes(player, currentElapsed);
+                const minsEl = card.querySelector('.player-minutes');
+                if (minsEl) minsEl.textContent = `${mins}'`;
+            }
+        });
+        
+        // Update bench player minutes
+        document.querySelectorAll('.bench .player-card').forEach(card => {
+            const playerId = parseInt(card.dataset.playerId);
+            const player = this.getPlayerById(playerId);
+            if (player) {
+                const mins = Math.round(player.minutesPlayed || 0);
+                const minsEl = card.querySelector('.player-minutes');
+                if (minsEl) minsEl.textContent = `${mins}'`;
+            }
+        });
+    }
+    
+    getDisplayMinutes(player, currentElapsed) {
+        let mins = player.minutesPlayed || 0;
+        if (player.onPitchSinceElapsed !== undefined) {
+            mins += (currentElapsed - player.onPitchSinceElapsed) / 60;
+        }
+        return Math.round(mins);
     }
 
     finalizePlayerMinutes(playerId) {
@@ -419,6 +457,14 @@ export class TeamSelector {
         
         // Share plan button
         this.elements.sharePlanBtn?.addEventListener('click', () => this.sharePlan());
+        
+        // Dev: Shift+Backspace to clear localStorage
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Backspace' && e.shiftKey) {
+                localStorage.clear();
+                location.reload();
+            }
+        });
     }
 
     setupSubsIconListeners() {
@@ -428,6 +474,7 @@ export class TeamSelector {
         let didHold = false;
         
         this.elements.subsIcon.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
             didHold = false;
             holdTimer = setTimeout(() => {
                 didHold = true;
@@ -436,6 +483,7 @@ export class TeamSelector {
         });
         
         this.elements.subsIcon.addEventListener('touchend', (e) => {
+            e.stopPropagation();
             clearTimeout(holdTimer);
             if (!didHold) this.showSubsPopup();
         });

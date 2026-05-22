@@ -18,6 +18,12 @@ export class EventManager {
      * @param {string} team - 'us' or 'them'
      */
     recordGoal(playerId, team = 'us') {
+        // Only allow goals during active match
+        if (!this.app.isMatchActive()) {
+            this.app.showToast('Start the match first', 'default', 1500);
+            return;
+        }
+        
         if (team === 'them' || !playerId) {
             this.finalizeGoal(playerId, null, team);
             return;
@@ -193,10 +199,41 @@ export class EventManager {
     }
 
     /**
+     * Record kick off event
+     */
+    recordKickOff() {
+        if (this.state.mode !== MODES.LIVE) return;
+        
+        this.state.matchEvents.push({
+            type: 'kickoff',
+            time: 0
+        });
+        this.renderMatchEvents();
+        this.app.saveState();
+    }
+
+    /**
+     * Record full time event
+     */
+    recordFullTime() {
+        if (this.state.mode !== MODES.LIVE) return;
+        
+        this.state.matchEvents.push({
+            type: 'fulltime',
+            time: this.app.timer.getElapsedSeconds(),
+            score: `${this.state.scoreUs} - ${this.state.scoreThem}`
+        });
+        this.renderMatchEvents();
+        this.app.saveState();
+    }
+
+    /**
      * Record a substitution
      */
     recordSubstitution(playerInId, playerOutId) {
+        // Only record subs during active match
         if (this.state.mode !== MODES.LIVE) return;
+        if (!this.app.isMatchActive()) return;
         
         const playerIn = this.app.getPlayerById(playerInId);
         const playerOut = this.app.getPlayerById(playerOutId);
@@ -330,6 +367,24 @@ export class EventManager {
             if (deleteBtn) {
                 deleteBtn.addEventListener('click', () => this.deleteMatchEvent(event.originalIndex));
             }
+        } else if (event.type === 'kickoff') {
+            div.className = 'match-event event-kickoff';
+            div.innerHTML = `
+                <span class="event-time">0'</span>
+                <span class="event-icon">🏁</span>
+                <span class="event-detail"><strong>KICK OFF</strong></span>
+            `;
+        } else if (event.type === 'fulltime') {
+            div.className = 'match-event event-fulltime';
+            const timeStr = this.formatEventTime(event.time);
+            div.innerHTML = `
+                <span class="event-time">${timeStr}</span>
+                <span class="event-icon">🔔</span>
+                <span class="event-detail">
+                    <strong>FULL TIME</strong>
+                    <span class="event-score">${event.score}</span>
+                </span>
+            `;
         }
         
         return div;
