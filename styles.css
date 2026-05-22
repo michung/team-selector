@@ -249,6 +249,7 @@ header h1 {
 
 /* Pitch Container */
 .pitch-container {
+    position: relative;
     margin-bottom: 20px;
 }
 
@@ -535,6 +536,7 @@ header h1 {
 }
 
 .score-them-tap {
+    position: relative;
     cursor: pointer;
     padding: 8px 12px;
     border-radius: 10px;
@@ -558,68 +560,74 @@ header h1 {
     margin-bottom: 0;
 }
 
-.live-hint-overlay {
+/* Hint badges for live mode */
+.hint-badge {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 15px;
-    z-index: 10;
-    opacity: 1;
-    transition: opacity 0.4s ease;
-    cursor: pointer;
-}
-
-.hint-card {
-    background: rgba(30, 30, 40, 0.95);
+    background: rgba(255, 255, 255, 0.15);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    padding: 16px 24px;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--white);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 10;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
     animation: hintPulse 2s ease-in-out infinite;
 }
 
-@keyframes hintPulse {
-    0%, 100% { transform: scale(1); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1); }
-    50% { transform: scale(1.02); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.15); }
-}
-
-.hint-item {
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: var(--white);
-    padding: 6px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.hint-item:first-child {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding-bottom: 10px;
-    margin-bottom: 4px;
-}
-
-.hint-dismiss {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.4);
-    text-align: center;
-    margin-top: 12px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.live-hint-overlay.hidden {
+.hint-badge.hidden {
     opacity: 0;
     pointer-events: none;
+}
+
+.hint-pitch {
+    top: 8px;
+    left: 8px;
+}
+
+/* Swipe hints for plan mode */
+.swipe-hint {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, 0.9);
+    padding: 16px 8px;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    font-weight: 600;
+    z-index: 5;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.swipe-hint-left {
+    left: 4px;
+}
+
+.swipe-hint-right {
+    right: 4px;
+}
+
+.swipe-hint.hidden {
+    opacity: 0;
+}
+
+.hint-score {
+    top: 8px;
+    right: 8px;
+}
+
+@keyframes hintPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
 }
 
 .live-controls .timer-display {
