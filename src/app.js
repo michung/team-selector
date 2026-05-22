@@ -559,6 +559,8 @@ export class TeamSelector {
         container.addEventListener('touchstart', (e) => {
             // Ignore if touching a player card (let drag handler manage those)
             if (e.target.closest('.player-card')) return;
+            // Ignore if touching the pitch area in Plan mode (has its own interval swipe)
+            if (e.target.closest('.pitch') && this.state.mode === MODES.PLAN) return;
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
             touchStartTime = Date.now();

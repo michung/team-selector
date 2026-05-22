@@ -178,7 +178,6 @@ export class DragManager {
             this.longPressJustTriggered = false;
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
-            this.startDrag(playerId, location, slotIndex);
             
             // Add pressed state class (more reliable than :active on touch)
             element.classList.add('pressed');
@@ -203,6 +202,9 @@ export class DragManager {
                     }
                 }, CONFIG.LONG_PRESS_MS);
             }
+            
+            // Start drag tracking after setting up long press
+            this.startDrag(playerId, location, slotIndex);
         }, { passive: true });
 
         element.addEventListener('touchmove', (e) => {
