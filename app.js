@@ -45,6 +45,7 @@ const DEFAULT_STATE = {
     selectedPlanInterval: 1,
     players: [],
     intervalLineups: {},
+    pinnedPositions: {},       // Track manually placed positions: { interval: [slot1, slot2, ...] }
     liveLineup: null,          // Actual lineup during live match (separate from planned)
     lastIntervalTime: 0,
     scoreUs: 0,
@@ -153,7 +154,11 @@ class TeamSelector {
             intervalCount: document.getElementById('interval-count'),
             assistPicker: document.getElementById('assist-picker'),
             assistOptions: document.getElementById('assist-options'),
-            liveHintOverlay: document.getElementById('live-hint-overlay'),
+            hintPitch: document.getElementById('hint-pitch'),
+            hintPin: document.getElementById('hint-pin'),
+            hintScore: document.getElementById('hint-score'),
+            swipeHintLeft: document.getElementById('swipe-hint-left'),
+            swipeHintRight: document.getElementById('swipe-hint-right'),
             rosterList: document.getElementById('roster-list'),
             newPlayerName: document.getElementById('new-player-name'),
             toastContainer: document.getElementById('toast-container'),
@@ -345,6 +350,33 @@ class TeamSelector {
         this.saveState();
     }
 
+    // Pin a position as manually placed (survives auto-generate)
+    pinPosition(interval, slot) {
+        if (!this.state.pinnedPositions[interval]) {
+            this.state.pinnedPositions[interval] = [];
+        }
+        if (!this.state.pinnedPositions[interval].includes(slot)) {
+            this.state.pinnedPositions[interval].push(slot);
+        }
+    }
+
+    // Unpin a position (when player removed)
+    unpinPosition(interval, slot) {
+        if (this.state.pinnedPositions[interval]) {
+            this.state.pinnedPositions[interval] = this.state.pinnedPositions[interval].filter(s => s !== slot);
+        }
+    }
+
+    // Check if a position is pinned
+    isPositionPinned(interval, slot) {
+        return this.state.pinnedPositions[interval]?.includes(slot) || false;
+    }
+
+    // Clear all pinned positions
+    clearAllPins() {
+        this.state.pinnedPositions = {};
+    }
+
     // ==================== EVENT LISTENERS ====================
 
     setupEventListeners() {
@@ -397,6 +429,7 @@ class TeamSelector {
         });
         
         document.getElementById('auto-subs-btn').addEventListener('click', () => this.autoGenerateSubs());
+        document.getElementById('clear-team-btn').addEventListener('click', () => this.clearTeam());
 
         // Timer controls
         this.elements.startBtn.addEventListener('click', () => this.startTimer());
@@ -423,9 +456,15 @@ class TeamSelector {
         // Copy from previous interval button (removed - now using drag between tabs)
         // this.elements.copyPrevBtn.addEventListener('click', () => this.copyFromPreviousInterval());
 
-        // Tap to dismiss live hint overlay
-        this.elements.liveHintOverlay.addEventListener('click', () => {
-            this.elements.liveHintOverlay.classList.add('hidden');
+        // Tap to dismiss live hints
+        this.elements.hintPitch?.addEventListener('click', () => {
+            this.elements.hintPitch.classList.add('hidden');
+        });
+        this.elements.hintScore?.addEventListener('click', () => {
+            this.elements.hintScore.classList.add('hidden');
+        });
+        this.elements.hintPin?.addEventListener('click', () => {
+            this.elements.hintPin.classList.add('hidden');
         });
 
         // Swipe left/right to switch between Plan and Live modes
@@ -442,12 +481,12 @@ class TeamSelector {
         let touchStartY = 0;
         let touchStartTime = 0;
         
-        const container = document.querySelector('.app-container');
+        const container = document.getElementById('app');
         if (!container) return;
         
         container.addEventListener('touchstart', (e) => {
-            // Ignore if touching a player card (let drag handle it)
-            if (e.target.closest('.player-card')) return;
+            // Ignore if touching a player card or the pitch (let other handlers manage those)
+            if (e.target.closest('.player-card') || e.target.closest('.pitch-container')) return;
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
             touchStartTime = Date.now();
@@ -645,6 +684,10 @@ class TeamSelector {
             
             // Only trigger swipe if horizontal movement is greater than vertical
             if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > swipeThreshold) {
+                // Hide swipe hints once user has learned the gesture
+                this.elements.swipeHintLeft?.classList.add('hidden');
+                this.elements.swipeHintRight?.classList.add('hidden');
+                
                 if (dx < 0 && this.state.selectedPlanInterval < this.settings.intervalCount) {
                     // Swipe left - next interval
                     this.selectPlanInterval(this.state.selectedPlanInterval + 1);
@@ -958,14 +1001,33 @@ class TeamSelector {
         this.elements.sharePlanBtn.style.display = mode === 'plan' ? 'inline-block' : 'none';
         this.elements.timerButtons.style.display = mode === 'live' ? 'flex' : 'none';
         
-        // Show live hint overlay when switching to live mode
-        if (mode === 'live') {
-            // Initialize live lineup from interval 1 if not already set
-            if (!this.state.liveLineup) {
+        // Show swipe hints in plan mode, live hints in live mode
+        if (mode === 'plan') {
+            this.elements.swipeHintLeft?.classList.remove('hidden');
+            this.elements.swipeHintRight?.classList.remove('hidden');
+            this.elements.hintPin?.classList.remove('hidden');
+            this.elements.hintPitch?.classList.add('hidden');
+            this.elements.hintScore?.classList.add('hidden');
+            setTimeout(() => {
+                this.elements.swipeHintLeft?.classList.add('hidden');
+                this.elements.swipeHintRight?.classList.add('hidden');
+                this.elements.hintPin?.classList.add('hidden');
+            }, 5000);
+        } else {
+            // Initialize/refresh live lineup from interval 1 if match hasn't started
+            const matchNotStarted = !this.state.startTime && this.state.pausedElapsedMs === 0;
+            if (!this.state.liveLineup || matchNotStarted) {
                 this.state.liveLineup = [...(this.state.intervalLineups[1] || Array(9).fill(null))];
             }
-            this.elements.liveHintOverlay.classList.remove('hidden');
-            setTimeout(() => this.elements.liveHintOverlay.classList.add('hidden'), 3000);
+            this.elements.swipeHintLeft?.classList.add('hidden');
+            this.elements.swipeHintRight?.classList.add('hidden');
+            this.elements.hintPin?.classList.add('hidden');
+            this.elements.hintPitch?.classList.remove('hidden');
+            this.elements.hintScore?.classList.remove('hidden');
+            setTimeout(() => {
+                this.elements.hintPitch?.classList.add('hidden');
+                this.elements.hintScore?.classList.add('hidden');
+            }, 4000);
         }
         
         // Toggle stats vs events section
@@ -1012,13 +1074,28 @@ class TeamSelector {
         this.saveState();
     }
 
+    // Clear all lineups across all intervals
+    clearTeam() {
+        for (let i = 1; i <= this.settings.intervalCount; i++) {
+            this.state.intervalLineups[i] = Array(CONFIG.SLOTS_COUNT).fill(null);
+        }
+        this.clearAllPins();
+        this.showToast('Team cleared');
+        this.renderPitch();
+        this.renderBench();
+        this.renderStats();
+        this.saveState();
+    }
+
     /**
      * Auto-generate substitution plan to distribute playtime fairly.
+     * Preserves any manually placed players in their positions.
      * Algorithm:
-     * 1. Calculate target game time for each player
-     * 2. For each interval, fill positions with players preferring that position
+     * 1. Save existing placements (locked positions)
+     * 2. For each interval, fill empty positions with players preferring that position
      *    - If multiple players want same position, pick one with least game time
      * 3. After filling, check bench players - swap in if they have less time than starter
+     *    (only for non-locked positions)
      */
     autoGenerateSubs() {
         const players = this.state.players;
@@ -1030,48 +1107,94 @@ class TeamSelector {
             return;
         }
         
-        // Clear existing lineups to start fresh
-        this.state.intervalLineups = {};
-        
-        // Find the GK (player with slot 0 as preferred, or first player)
-        const gk = players.find(p => p.preferredPositions?.includes(0)) || players[0];
-        const gkId = gk.id;
-        
-        // Outfield players (everyone except GK)
-        const outfieldPlayers = players.filter(p => p.id !== gkId);
-        const outfieldCount = outfieldPlayers.length;
-        const outfieldSlots = pitchSize - 1; // 8 outfield positions
-        
-        if (outfieldCount < outfieldSlots) {
-            this.showToast('Need more outfield players');
-            return;
+        // Save existing lineups to get pinned player values
+        const existingLineups = {};
+        for (let i = 1; i <= intervals; i++) {
+            existingLineups[i] = this.state.intervalLineups[i] 
+                ? [...this.state.intervalLineups[i]] 
+                : Array(pitchSize).fill(null);
         }
         
-        // Calculate target intervals for each player (average game time)
-        const totalPlayingSlots = intervals * outfieldSlots;
-        const targetIntervals = totalPlayingSlots / outfieldCount;
+        // Build locked positions from pinnedPositions (not from all filled positions)
+        const lockedPerInterval = {}; // interval -> Map<slot, playerId>
+        const lockedPlayerIds = new Set(); // all players locked in at least one interval
+        
+        for (let interval = 1; interval <= intervals; interval++) {
+            lockedPerInterval[interval] = new Map();
+            const pinnedSlots = this.state.pinnedPositions[interval] || [];
+            for (const slot of pinnedSlots) {
+                const playerId = existingLineups[interval][slot];
+                if (playerId !== null) {
+                    lockedPerInterval[interval].set(slot, playerId);
+                    lockedPlayerIds.add(playerId);
+                }
+            }
+        }
+        
+        // Clear lineups to rebuild
+        this.state.intervalLineups = {};
+        
+        // Find the GK - check if any GK is locked, otherwise use default
+        let gkId = null;
+        for (let interval = 1; interval <= intervals; interval++) {
+            if (lockedPerInterval[interval].has(0)) {
+                gkId = lockedPerInterval[interval].get(0);
+                break;
+            }
+        }
+        if (!gkId) {
+            const gk = players.find(p => p.preferredPositions?.includes(0)) || players[0];
+            gkId = gk.id;
+        }
+        
+        // Available players for rotation (everyone except GK)
+        const availablePlayers = players.filter(p => p.id !== gkId);
         
         // Track how many intervals each player has been assigned
         const intervalsPlayed = {};
-        outfieldPlayers.forEach(p => intervalsPlayed[p.id] = 0);
+        availablePlayers.forEach(p => intervalsPlayed[p.id] = 0);
+        
+        // Pre-count locked intervals for each player
+        for (let interval = 1; interval <= intervals; interval++) {
+            for (const [slot, playerId] of lockedPerInterval[interval]) {
+                if (slot !== 0 && intervalsPlayed[playerId] !== undefined) {
+                    intervalsPlayed[playerId]++;
+                }
+            }
+        }
         
         // Build lineups interval by interval
         for (let interval = 1; interval <= intervals; interval++) {
             const lineup = new Array(pitchSize).fill(null);
-            lineup[0] = gkId; // GK always plays
+            const locked = lockedPerInterval[interval];
             
-            const assignedThisInterval = new Set();
+            // Set GK (locked or default)
+            lineup[0] = locked.has(0) ? locked.get(0) : gkId;
             
-            // For each outfield slot (1-8), find best player
+            // Set all locked players in their positions
+            for (const [slot, playerId] of locked) {
+                lineup[slot] = playerId;
+            }
+            
+            // Track who's already assigned this interval
+            const assignedThisInterval = new Set(lineup.filter(id => id !== null));
+            
+            // Open slots (not locked)
+            const openSlots = [];
             for (let slot = 1; slot < pitchSize; slot++) {
-                // Find players who prefer this position and aren't assigned yet
-                const candidates = outfieldPlayers.filter(p => 
+                if (!locked.has(slot)) {
+                    openSlots.push(slot);
+                }
+            }
+            
+            // For each open slot, find best player
+            for (const slot of openSlots) {
+                const candidates = availablePlayers.filter(p => 
                     !assignedThisInterval.has(p.id) &&
                     p.preferredPositions?.includes(slot)
                 );
                 
                 if (candidates.length > 0) {
-                    // Sort by least game time, then random for ties
                     candidates.sort((a, b) => {
                         const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
                         return diff !== 0 ? diff : Math.random() - 0.5;
@@ -1083,11 +1206,11 @@ class TeamSelector {
                 }
             }
             
-            // Fill any remaining empty slots with unassigned players (by least game time)
-            for (let slot = 1; slot < pitchSize; slot++) {
+            // Fill remaining empty open slots
+            for (const slot of openSlots) {
                 if (lineup[slot] !== null) continue;
                 
-                const unassigned = outfieldPlayers
+                const unassigned = availablePlayers
                     .filter(p => !assignedThisInterval.has(p.id))
                     .sort((a, b) => {
                         const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
@@ -1100,15 +1223,13 @@ class TeamSelector {
                 }
             }
             
-            // Now check bench players (subs) - swap if they have less time than starter
-            const onPitch = new Set(lineup.filter(id => id !== null && id !== gkId));
-            const onBench = outfieldPlayers.filter(p => !onPitch.has(p.id));
+            // Bench swap logic - only for open slots (can't swap out locked players)
+            const onPitchOpen = new Set(openSlots.map(s => lineup[s]).filter(id => id !== null));
+            const onBench = availablePlayers.filter(p => !assignedThisInterval.has(p.id));
             
-            // Determine max swaps per interval
             const maxSwaps = Math.min(this.settings.subsPerInterval, onBench.length);
             let swapCount = 0;
             
-            // Sort bench by least game time first, randomize ties for fairness
             onBench.sort((a, b) => {
                 const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
                 return diff !== 0 ? diff : Math.random() - 0.5;
@@ -1120,29 +1241,26 @@ class TeamSelector {
                 const subTime = intervalsPlayed[sub.id];
                 const subPrefs = sub.preferredPositions || [];
                 
-                // Go through sub's preferred positions in order
                 for (const prefSlot of subPrefs) {
-                    if (prefSlot === 0) continue; // Skip GK slot
+                    if (prefSlot === 0 || locked.has(prefSlot)) continue; // Skip GK and locked slots
                     
                     const currentPlayerId = lineup[prefSlot];
-                    if (!currentPlayerId || currentPlayerId === gkId) continue;
+                    if (!currentPlayerId) continue;
                     
                     const currentTime = intervalsPlayed[currentPlayerId];
                     
-                    // Swap if sub has played less
                     if (subTime < currentTime) {
-                        // Make sure current player can go to bench (we have enough coverage)
                         lineup[prefSlot] = sub.id;
-                        onPitch.delete(currentPlayerId);
-                        onPitch.add(sub.id);
+                        onPitchOpen.delete(currentPlayerId);
+                        onPitchOpen.add(sub.id);
                         swapCount++;
-                        break; // Sub is now on pitch, move to next sub
+                        break;
                     }
                 }
             }
             
-            // Update intervals played count
-            for (let slot = 1; slot < pitchSize; slot++) {
+            // Update intervals played (only for slots we filled, not pre-counted locked ones)
+            for (const slot of openSlots) {
                 if (lineup[slot]) {
                     intervalsPlayed[lineup[slot]]++;
                 }
@@ -1151,10 +1269,18 @@ class TeamSelector {
             this.state.intervalLineups[interval] = lineup;
         }
         
-        // Calculate average minutes per outfield player
+        // Calculate stats message
+        const lockedCount = lockedPlayerIds.size;
         const intervalDuration = this.settings.matchDuration / intervals;
+        const outfieldSlots = pitchSize - 1;
+        const totalPlayingSlots = intervals * outfieldSlots;
+        const targetIntervals = totalPlayingSlots / availablePlayers.length;
         const avgMinutes = Math.round(targetIntervals * intervalDuration);
-        this.showToast(`~${targetIntervals.toFixed(1)} intervals · ~${avgMinutes} mins each`);
+        
+        const msg = lockedCount > 0 
+            ? `Kept ${lockedCount} placed · ~${avgMinutes} mins for others`
+            : `~${targetIntervals.toFixed(1)} intervals · ~${avgMinutes} mins each`;
+        this.showToast(msg);
         
         this.renderAll();
         this.saveState();
@@ -1299,27 +1425,41 @@ class TeamSelector {
         const liveLineup = this.state.liveLineup || [];
         const plannedLineup = this.state.intervalLineups[this.state.currentInterval] || [];
         
-        // Finalize minutes for players going off
-        for (let i = 0; i < CONFIG.SLOTS_COUNT; i++) {
-            const livePlayer = liveLineup[i];
-            const plannedPlayer = plannedLineup[i];
-            
-            if (livePlayer !== plannedPlayer) {
-                if (livePlayer && !plannedLineup.includes(livePlayer)) {
-                    this.finalizePlayerMinutes(livePlayer);
-                }
-            }
-        }
+        // Find players coming on and going off
+        const playersOn = [];
+        const playersOff = [];
         
-        // Start tracking minutes for players coming on
         for (let i = 0; i < CONFIG.SLOTS_COUNT; i++) {
             const livePlayer = liveLineup[i];
             const plannedPlayer = plannedLineup[i];
             
             if (livePlayer !== plannedPlayer) {
                 if (plannedPlayer && !liveLineup.includes(plannedPlayer)) {
-                    this.startPlayerMinutes(plannedPlayer);
+                    playersOn.push(plannedPlayer);
                 }
+                if (livePlayer && !plannedLineup.includes(livePlayer)) {
+                    playersOff.push(livePlayer);
+                }
+            }
+        }
+        
+        // Finalize minutes for players going off
+        for (const playerId of playersOff) {
+            this.finalizePlayerMinutes(playerId);
+        }
+        
+        // Start tracking minutes for players coming on
+        for (const playerId of playersOn) {
+            this.startPlayerMinutes(playerId);
+        }
+        
+        // Record substitution events (pair them up)
+        const maxLen = Math.max(playersOn.length, playersOff.length);
+        for (let i = 0; i < maxLen; i++) {
+            const playerIn = playersOn[i];
+            const playerOut = playersOff[i];
+            if (playerIn && playerOut) {
+                this.recordSubstitution(playerIn, playerOut);
             }
         }
         
@@ -1568,18 +1708,38 @@ class TeamSelector {
         let touchMoved = false;
         let longPressTriggered = false;
 
-        // Long press handler for goals (only in live mode, only on pitch)
+        // Long press handler for goals (live mode) or pin toggle (plan mode)
         const triggerGoal = () => {
             this.recordGoal(playerId, 'us');
             this.showScoringAnimation(element);
         };
 
+        const triggerPinToggle = () => {
+            if (slotIndex === null) return;
+            const interval = this.state.selectedPlanInterval;
+            if (this.isPositionPinned(interval, slotIndex)) {
+                this.unpinPosition(interval, slotIndex);
+                this.showToast('Unpinned');
+            } else {
+                this.pinPosition(interval, slotIndex);
+                this.showToast('Pinned 📌');
+            }
+            this.renderPitch();
+        };
+
         const startLongPress = () => {
-            if (this.state.mode !== 'live' || location !== 'pitch') return;
-            longPressTimer = setTimeout(() => {
-                triggerGoal();
-                longPressTimer = null;
-            }, CONFIG.LONG_PRESS_MS);
+            if (location !== 'pitch') return;
+            if (this.state.mode === 'live') {
+                longPressTimer = setTimeout(() => {
+                    triggerGoal();
+                    longPressTimer = null;
+                }, CONFIG.LONG_PRESS_MS);
+            } else if (this.state.mode === 'plan') {
+                longPressTimer = setTimeout(() => {
+                    triggerPinToggle();
+                    longPressTimer = null;
+                }, CONFIG.LONG_PRESS_MS);
+            }
         };
 
         const cancelLongPress = () => {
@@ -1630,11 +1790,15 @@ class TeamSelector {
             startY = e.touches[0].clientY;
             this.startDrag(playerId, location, slotIndex);
             
-            // Start long press timer for goals
-            if (this.state.mode === 'live' && location === 'pitch') {
+            // Start long press timer for goals (live) or pin toggle (plan)
+            if (location === 'pitch') {
                 longPressTimer = setTimeout(() => {
                     longPressTriggered = true;
-                    triggerGoal();
+                    if (this.state.mode === 'live') {
+                        triggerGoal();
+                    } else if (this.state.mode === 'plan') {
+                        triggerPinToggle();
+                    }
                 }, CONFIG.LONG_PRESS_MS);
             }
         }, { passive: true });
@@ -1731,6 +1895,10 @@ class TeamSelector {
             }
         }
         lineup[slotIndex] = null;
+        // Unpin position in plan mode
+        if (this.state.mode === 'plan') {
+            this.unpinPosition(this.state.selectedPlanInterval, slotIndex);
+        }
         this.setCurrentLineup(lineup);
         this.renderPitch();
         this.renderBench();
@@ -1895,6 +2063,10 @@ class TeamSelector {
             if (sourceLocation === 'pitch' && sourceSlot !== null) {
                 this.finalizePlayerMinutes(draggingPlayer);
                 lineup[sourceSlot] = null;
+                // Unpin position in plan mode
+                if (this.state.mode === 'plan') {
+                    this.unpinPosition(this.state.selectedPlanInterval, sourceSlot);
+                }
             }
         }
 
@@ -2116,8 +2288,14 @@ class TeamSelector {
             ? `<span class="player-stats-badge">${goalIndicator}</span>` 
             : '';
         
+        // Show pin indicator in plan mode for pinned positions on pitch
+        const isPinned = this.state.mode === 'plan' && location === 'pitch' && slotIndex !== null 
+            && this.isPositionPinned(this.state.selectedPlanInterval, slotIndex);
+        const pinBadge = isPinned ? '<span class="pin-badge">📌</span>' : '';
+        
         card.innerHTML = `
             ${statsBadge}
+            ${pinBadge}
             <span class="player-name">${player.name}</span>
             <span class="player-minutes">${minuteLabel}</span>
         `;

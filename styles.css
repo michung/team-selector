@@ -589,6 +589,11 @@ header h1 {
     left: 8px;
 }
 
+.hint-pin {
+    top: 8px;
+    right: 8px;
+}
+
 /* Swipe hints for plan mode */
 .swipe-hint {
     position: absolute;
@@ -858,13 +863,19 @@ header h1 {
 
 .player-stats-badge {
     position: absolute;
-    top: -2px;
-    right: -2px;
+    top: 2px;
+    right: 2px;
     display: flex;
     gap: 1px;
-    background: rgba(0, 0, 0, 0.6);
-    border-radius: 8px;
-    padding: 1px 3px;
+    background: transparent;
+}
+
+.pin-badge {
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    font-size: 0.6rem;
+    line-height: 1;
 }
 
 .goal-indicator,
