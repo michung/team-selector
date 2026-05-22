@@ -14,6 +14,7 @@
     --accent: #e74c3c;
     --accent-dark: #c0392b;
     --success: #27ae60;
+    --danger: #e74c3c;
     --warning: #f39c12;
     --dark: #2c3e50;
     --light: #ecf0f1;
@@ -76,6 +77,10 @@ header h1 {
     font-family: 'Courier New', monospace;
     color: var(--success);
     user-select: none;
+}
+
+#current-time.overtime {
+    color: var(--danger);
 }
 
 .interval-info {
@@ -823,9 +828,17 @@ header h1 {
     touch-action: none;
 }
 
-.player-card:active {
+.player-card:active,
+.player-card.pressed {
     cursor: grabbing;
-    transform: scale(1.1);
+    transform: scale(1.05);
+}
+
+/* Disable :active on touch devices to prevent flickering */
+@media (hover: none) {
+    .player-card:active {
+        transform: none;
+    }
 }
 
 .player-card.dragging {
@@ -964,20 +977,17 @@ header h1 {
 
 .sub-change {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
     align-items: center;
-    padding: 6px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 10px;
+    padding: 10px;
+    background: rgba(241, 196, 15, 0.1);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border-left: 3px solid var(--warning);
 }
 
 .sub-change:last-child {
-    border-bottom: none;
-}
-
-.sub-interval {
-    font-weight: bold;
-    min-width: 50px;
+    margin-bottom: 0;
 }
 
 .sub-on {
@@ -1327,7 +1337,349 @@ header h1 {
     opacity: 0.7;
 }
 
-/* Interval Indicator */
+/* Subs Icon (top right of pitch) */
+.subs-icon {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 40px;
+    height: 40px;
+    background: rgba(30, 30, 40, 0.9);
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+    z-index: 20;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.subs-icon.visible {
+    display: flex;
+}
+
+.subs-icon:active {
+    transform: scale(0.92);
+}
+
+.subs-icon .subs-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: rgba(231, 76, 60, 0.6);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    display: none;
+}
+
+.subs-icon .subs-badge.visible {
+    display: flex;
+}
+
+/* Subs Popup */
+.subs-popup {
+    position: absolute;
+    bottom: 54px;
+    right: 8px;
+    background: rgba(30, 30, 40, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 12px;
+    padding: 12px 14px;
+    min-width: 320px;
+    max-width: 400px;
+    z-index: 25;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    animation: subsPopupIn 0.2s ease-out;
+}
+
+@keyframes subsPopupIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Subs Slider */
+.subs-slider {
+    position: relative;
+    overflow: hidden;
+}
+
+.subs-slide {
+    display: none;
+}
+
+.subs-slide.active {
+    display: block;
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.subs-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.subs-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.subs-dot.active {
+    background: var(--primary);
+    transform: scale(1.2);
+}
+
+.subs-dot:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.subs-dot.past {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.subs-dot.past.active {
+    background: rgba(52, 152, 219, 0.5);
+}
+
+/* Past interval styling */
+.sub-change.past {
+    opacity: 0.5;
+    border-left-color: rgba(241, 196, 15, 0.4);
+}
+
+.subs-popup-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: white;
+    margin-bottom: 4px;
+}
+
+.subs-popup-subtitle {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+}
+
+.subs-popup .subs-list {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    padding: 6px 10px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.subs-popup .sub-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 4px;
+    font-size: 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.subs-popup .sub-row:last-child {
+    border-bottom: none;
+}
+
+.subs-popup .sub-row .player-on,
+.subs-popup .subs-list .player-on {
+    color: #27ae60 !important;
+    font-weight: 600;
+}
+
+.subs-popup .sub-row .player-off,
+.subs-popup .subs-list .player-off {
+    color: #e74c3c !important;
+    font-weight: 600;
+}
+
+.subs-popup .no-changes {
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+    font-size: 0.85rem;
+    padding: 8px 0;
+    text-align: center;
+}
+
+.subs-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 24;
+}
+
+/* Interval Banner (collapsible) */
+.interval-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: rgba(30, 30, 40, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 12px 16px;
+    z-index: 100;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    transform: translateY(0);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.interval-banner.minimized {
+    transform: translateY(-100%);
+}
+
+.interval-banner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.interval-banner-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.interval-banner-subtitle {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.interval-banner .subs-list {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.interval-banner .sub-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 4px;
+    font-size: 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.interval-banner .sub-row:last-child {
+    border-bottom: none;
+}
+
+.interval-banner .player-on {
+    color: var(--success);
+    font-weight: 500;
+}
+
+.interval-banner .player-off {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+.interval-banner .no-changes {
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+    font-size: 0.85rem;
+    padding: 8px 0;
+    text-align: center;
+}
+
+.interval-banner-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.interval-banner .apply-btn,
+.interval-banner .dismiss-btn {
+    flex: 1;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s ease;
+}
+
+.interval-banner .apply-btn {
+    background: var(--success);
+    color: white;
+}
+
+.interval-banner .dismiss-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.interval-banner .apply-btn:active,
+.interval-banner .dismiss-btn:active {
+    transform: scale(0.96);
+}
+
+/* Minimized indicator pill */
+.interval-indicator-pill {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: pillPulse 2s ease-in-out infinite;
+    display: none;
+}
+
+.interval-indicator-pill.visible {
+    display: block;
+}
+
+.interval-indicator-pill:active {
+    transform: translateX(-50%) scale(0.95);
+}
+
+@keyframes pillPulse {
+    0%, 100% { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
+    50% { box-shadow: 0 4px 20px rgba(100, 149, 237, 0.5); }
+}
+
+/* Legacy modal styles (keeping for backwards compatibility) */
 .interval-indicator-overlay {
     position: fixed;
     top: 0;

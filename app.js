@@ -41,7 +41,9 @@ const DEFAULT_STATE = {
     startTime: null,           // Timestamp when timer started
     pausedElapsedMs: 0,        // Accumulated time when paused (milliseconds)
     lastTickTime: null,        // For tracking player minute deltas
+    fullTimeShown: false,      // Whether full time notification has been shown
     currentInterval: 1,
+    lastAppliedSubsInterval: 0,  // Track which interval's subs have been applied
     selectedPlanInterval: 1,
     players: [],
     intervalLineups: {},
@@ -140,8 +142,8 @@ class TeamSelector {
             currentTime: document.getElementById('current-time'),
             intervalTabs: document.getElementById('interval-tabs'),
             copyPrevBtn: document.getElementById('copy-prev-btn'), // Legacy, may be null
-            startBtn: document.getElementById('start-btn'),
-            pauseBtn: document.getElementById('pause-btn'),
+            playPauseBtn: document.getElementById('play-pause-btn'),
+            stopBtn: document.getElementById('stop-btn'),
             planControls: document.getElementById('plan-controls'),
             liveControls: document.getElementById('live-controls'),
             sharePlanBtn: document.getElementById('share-plan-btn'),
@@ -163,7 +165,9 @@ class TeamSelector {
             rosterList: document.getElementById('roster-list'),
             newPlayerName: document.getElementById('new-player-name'),
             toastContainer: document.getElementById('toast-container'),
-            pitch: document.getElementById('pitch')
+            pitch: document.getElementById('pitch'),
+            subsIcon: document.getElementById('subs-icon'),
+            subsBadge: document.getElementById('subs-badge')
         };
     }
 
@@ -405,6 +409,7 @@ class TeamSelector {
         this.elements.matchDuration.addEventListener('change', (e) => {
             this.settings.matchDuration = parseInt(e.target.value) || CONFIG.DEFAULT_MATCH_DURATION;
             this.updateIntervalDisplay();
+            this.renderStats();
             this.saveState();
         });
 
@@ -431,10 +436,55 @@ class TeamSelector {
         
         document.getElementById('auto-subs-btn').addEventListener('click', () => this.autoGenerateSubs());
         document.getElementById('clear-team-btn').addEventListener('click', () => this.clearTeam());
+        
+        // Subs icon - tap to show popup, hold to apply subs
+        if (this.elements.subsIcon) {
+            let holdTimer = null;
+            let didHold = false;
+            
+            this.elements.subsIcon.addEventListener('touchstart', (e) => {
+                didHold = false;
+                holdTimer = setTimeout(() => {
+                    didHold = true;
+                    this.applyPlannedSubs();
+                }, CONFIG.LONG_PRESS_MS);
+            });
+            
+            this.elements.subsIcon.addEventListener('touchend', (e) => {
+                clearTimeout(holdTimer);
+                if (!didHold) {
+                    this.showSubsPopup();
+                }
+            });
+            
+            this.elements.subsIcon.addEventListener('touchcancel', () => {
+                clearTimeout(holdTimer);
+            });
+            
+            // Mouse fallback for desktop
+            this.elements.subsIcon.addEventListener('mousedown', (e) => {
+                didHold = false;
+                holdTimer = setTimeout(() => {
+                    didHold = true;
+                    this.applyPlannedSubs();
+                }, CONFIG.LONG_PRESS_MS);
+            });
+            
+            this.elements.subsIcon.addEventListener('mouseup', (e) => {
+                clearTimeout(holdTimer);
+                if (!didHold) {
+                    this.showSubsPopup();
+                }
+            });
+            
+            this.elements.subsIcon.addEventListener('mouseleave', () => {
+                clearTimeout(holdTimer);
+            });
+        }
 
         // Timer controls
-        this.elements.startBtn.addEventListener('click', () => this.startTimer());
-        this.elements.pauseBtn.addEventListener('click', () => this.pauseTimer());
+        this.elements.playPauseBtn.addEventListener('click', () => this.toggleTimer());
+        this.elements.stopBtn.addEventListener('click', () => this.stopMatch());
         document.getElementById('reset-match').addEventListener('click', () => this.resetMatch());
 
         // Score controls - tap Them score to increment
@@ -471,14 +521,8 @@ class TeamSelector {
         // Handle device wake from sleep - update timer immediately
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && this.state.isRunning) {
-                // Check if match should have ended while sleeping
-                if (this.getElapsedSeconds() >= this.matchDurationSeconds) {
-                    this.pauseTimer();
-                    this.showToast('Full time!', 'success');
-                } else {
-                    this.updateTimerDisplay();
-                    this.checkIntervalChange();
-                }
+                this.updateTimerDisplay();
+                this.checkIntervalChange();
             }
         });
 
@@ -866,22 +910,24 @@ class TeamSelector {
     startTimerInterval() {
         // Update display frequently - time is calculated from startTime, not incremented
         this.timerInterval = setInterval(() => {
-            // Check if match duration reached - auto-stop timer
-            if (this.getElapsedSeconds() >= this.matchDurationSeconds) {
-                this.pauseTimer();
-                this.showToast('Full time!', 'success');
-                return;
-            }
+            const elapsed = this.getElapsedSeconds();
             
             this.updateTimerDisplay();
             this.updatePlayerMinutes();
             this.checkIntervalChange();
             // Save state periodically (every ~10 seconds of game time)
-            const elapsed = this.getElapsedSeconds();
             if (elapsed % 10 === 0) {
                 this.saveState();
             }
         }, 200); // Update every 200ms for responsive display
+    }
+
+    toggleTimer() {
+        if (this.state.isRunning) {
+            this.pauseTimer();
+        } else {
+            this.startTimer();
+        }
     }
 
     startTimer() {
@@ -890,12 +936,13 @@ class TeamSelector {
         this.state.isRunning = true;
         this.state.startTime = Date.now();
         this.state.lastTickTime = Date.now();
-        this.elements.startBtn.disabled = true;
-        this.elements.pauseBtn.disabled = false;
+        this.elements.playPauseBtn.textContent = '⏸';
+        this.elements.playPauseBtn.classList.remove('btn-primary');
+        this.elements.playPauseBtn.classList.add('btn-secondary');
 
         // Set onPitchSinceElapsed for all players currently on pitch
         const currentElapsed = this.getElapsedSeconds();
-        const lineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        const lineup = this.getCurrentLineup();
         lineup.forEach(playerId => {
             if (playerId !== null) {
                 const player = this.getPlayerById(playerId);
@@ -923,17 +970,37 @@ class TeamSelector {
         this.state.isRunning = false;
         this.state.startTime = null;
         this.state.lastTickTime = null;
-        this.elements.startBtn.disabled = false;
-        this.elements.pauseBtn.disabled = true;
+        this.elements.playPauseBtn.textContent = '▶';
+        this.elements.playPauseBtn.classList.remove('btn-secondary');
+        this.elements.playPauseBtn.classList.add('btn-primary');
 
         clearInterval(this.timerInterval);
         this.saveState();
     }
 
+    stopMatch() {
+        // First pause if running
+        if (this.state.isRunning) {
+            this.pauseTimer();
+        }
+        
+        // Show confirmation with final score
+        const finalScore = `${this.state.scoreUs} - ${this.state.scoreThem}`;
+        this.showToast(`Full time! Final score: ${finalScore}`, 'success', 3000);
+        
+        // Disable the play/pause button to prevent restarting
+        this.elements.playPauseBtn.disabled = true;
+        this.elements.playPauseBtn.textContent = '✓';
+        this.elements.stopBtn.disabled = true;
+        
+        this.saveState();
+    }
+
     // Finalize minutes for all players currently on pitch
     finalizeAllOnPitchMinutes() {
-        const currentElapsed = this.getElapsedSeconds();
-        const lineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        // Cap elapsed time at match duration to avoid over-counting
+        const currentElapsed = Math.min(this.getElapsedSeconds(), this.matchDurationSeconds);
+        const lineup = this.getCurrentLineup();
         lineup.forEach(playerId => {
             if (playerId !== null) {
                 const player = this.getPlayerById(playerId);
@@ -987,6 +1054,18 @@ class TeamSelector {
         return this.settings.matchDuration * 60;
     }
 
+    // Format event time with stoppage time notation (e.g., "60+2'" for 62 minutes in a 60-minute match)
+    formatEventTime(seconds) {
+        const matchDurationMinutes = this.settings.matchDuration;
+        const eventMinutes = Math.floor(seconds / 60);
+        
+        if (eventMinutes > matchDurationMinutes) {
+            const extraMinutes = eventMinutes - matchDurationMinutes;
+            return `${matchDurationMinutes}+${extraMinutes}'`;
+        }
+        return `${eventMinutes}'`;
+    }
+
     // Helper: Record a substitution event
     recordSubstitution(playerInId, playerOutId) {
         if (this.state.mode !== MODES.LIVE) return;
@@ -1019,6 +1098,7 @@ class TeamSelector {
         // Show swipe hints in plan mode, live hints in live mode
         if (mode === 'plan') {
             this.elements.pitchActions?.classList.remove('hidden');
+            this.elements.subsIcon?.classList.remove('visible');
             this.elements.swipeHintLeft?.classList.remove('hidden');
             this.elements.swipeHintRight?.classList.remove('hidden');
             this.elements.hintPin?.classList.remove('hidden');
@@ -1031,11 +1111,15 @@ class TeamSelector {
             }, 5000);
         } else {
             this.elements.pitchActions?.classList.add('hidden');
+            // Show subs icon in live mode
+            this.elements.subsIcon?.classList.add('visible');
             // Initialize/refresh live lineup from interval 1 if match hasn't started
             const matchNotStarted = !this.state.startTime && this.state.pausedElapsedMs === 0;
             if (!this.state.liveLineup || matchNotStarted) {
                 this.state.liveLineup = [...(this.state.intervalLineups[1] || Array(9).fill(null))];
             }
+            // Update badge AFTER liveLineup is initialized
+            this.updateSubsIconBadge();
             this.elements.swipeHintLeft?.classList.add('hidden');
             this.elements.swipeHintRight?.classList.add('hidden');
             this.elements.hintPin?.classList.add('hidden');
@@ -1313,15 +1397,24 @@ class TeamSelector {
 
     updateTimerDisplay() {
         const totalSeconds = this.getElapsedSeconds();
+        const matchDurationSecs = this.matchDurationSeconds;
         
-        // Cap display at match duration
-        const displaySeconds = Math.min(totalSeconds, this.matchDurationSeconds);
-        const minutes = Math.floor(displaySeconds / 60);
-        const seconds = displaySeconds % 60;
-        const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        
-        const speedStr = this.state.speedMultiplier > 1 ? ` (${this.state.speedMultiplier}x)` : '';
-        this.elements.currentTime.textContent = timeStr + speedStr;
+        // Show stoppage time format after match duration
+        if (totalSeconds > matchDurationSecs) {
+            const matchMinutes = this.settings.matchDuration;
+            const extraSeconds = totalSeconds - matchDurationSecs;
+            const extraMins = Math.floor(extraSeconds / 60);
+            const speedStr = this.state.speedMultiplier > 1 ? ` (${this.state.speedMultiplier}x)` : '';
+            this.elements.currentTime.textContent = `${matchMinutes}+${extraMins}${speedStr}`;
+            this.elements.currentTime.classList.add('overtime');
+        } else {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            const speedStr = this.state.speedMultiplier > 1 ? ` (${this.state.speedMultiplier}x)` : '';
+            this.elements.currentTime.textContent = timeStr + speedStr;
+            this.elements.currentTime.classList.remove('overtime');
+        }
     }
 
     updateIntervalDisplay() {
@@ -1345,7 +1438,8 @@ class TeamSelector {
     triggerIntervalChange(newInterval) {
         this.state.currentInterval = newInterval;
         this.updateIntervalDisplay();
-        this.showIntervalNotification();
+        // Update subs icon badge to show pending subs
+        this.updateSubsIconBadge();
         this.renderPitch();
         this.renderBench();
         this.saveState();
@@ -1381,6 +1475,11 @@ class TeamSelector {
         }
         
         const hasChanges = playersOn.length > 0 || playersOff.length > 0;
+        const subsCount = Math.max(playersOn.length, playersOff.length);
+        
+        // Remove any existing banner/pill
+        document.querySelector('.interval-banner')?.remove();
+        document.querySelector('.interval-indicator-pill')?.remove();
         
         // Build substitutions HTML
         let subsHtml = '';
@@ -1403,90 +1502,320 @@ class TeamSelector {
             subsHtml += '</div>';
         }
         
-        // Create backdrop overlay
-        const overlay = document.createElement('div');
-        overlay.className = 'interval-indicator-overlay';
-        document.body.appendChild(overlay);
-        
-        const notification = document.createElement('div');
-        notification.className = 'interval-indicator';
-        notification.innerHTML = `
-            <h2>🔄 Interval ${this.state.currentInterval}</h2>
-            <p>Planned substitutions</p>
+        // Create collapsible banner
+        const banner = document.createElement('div');
+        banner.className = 'interval-banner';
+        banner.innerHTML = `
+            <div class="interval-banner-header">
+                <div>
+                    <div class="interval-banner-title">🔄 Interval ${this.state.currentInterval}</div>
+                    <div class="interval-banner-subtitle">Planned substitutions</div>
+                </div>
+            </div>
             ${subsHtml}
-            <div class="interval-buttons">
+            <div class="interval-banner-buttons">
                 ${hasChanges ? '<button class="apply-btn">Apply</button>' : ''}
                 <button class="dismiss-btn">${hasChanges ? 'Skip' : 'OK'}</button>
             </div>
         `;
-        document.body.appendChild(notification);
+        document.body.appendChild(banner);
+        
+        // Create minimized pill indicator
+        const pill = document.createElement('div');
+        pill.className = 'interval-indicator-pill';
+        pill.textContent = hasChanges ? `${subsCount} sub${subsCount > 1 ? 's' : ''} pending` : 'No subs';
+        document.body.appendChild(pill);
+        
+        let minimizeTimeout = null;
+        
+        const minimize = () => {
+            banner.classList.add('minimized');
+            if (hasChanges) {
+                pill.classList.add('visible');
+            }
+        };
+        
+        const expand = () => {
+            banner.classList.remove('minimized');
+            pill.classList.remove('visible');
+            // Reset auto-minimize timer
+            clearTimeout(minimizeTimeout);
+            minimizeTimeout = setTimeout(minimize, 6000);
+        };
         
         const dismiss = () => {
-            overlay.remove();
-            notification.remove();
+            clearTimeout(minimizeTimeout);
+            banner.remove();
+            pill.remove();
         };
+        
+        // Auto-minimize after 6 seconds
+        minimizeTimeout = setTimeout(minimize, 6000);
+        
+        // Pill click expands banner
+        pill.addEventListener('click', expand);
         
         // Apply planned subs
         if (hasChanges) {
-            notification.querySelector('.apply-btn').addEventListener('click', () => {
+            banner.querySelector('.apply-btn').addEventListener('click', () => {
                 this.applyPlannedSubs();
                 dismiss();
             });
         }
         
-        // Dismiss
-        notification.querySelector('.dismiss-btn').addEventListener('click', dismiss);
+        // Dismiss button
+        banner.querySelector('.dismiss-btn').addEventListener('click', dismiss);
+    }
+    
+    // Get planned subs for the next interval
+    getNextIntervalSubs() {
+        // Use the next interval that hasn't been applied yet
+        const nextInterval = (this.state.lastAppliedSubsInterval || 1) + 1;
+        if (nextInterval > this.settings.intervalCount) {
+            return { playersOn: [], playersOff: [], nextInterval: null, subsCount: 0 };
+        }
+        
+        // Find the planned changes for this interval
+        const allChanges = this.getIntervalChanges();
+        const change = allChanges.find(c => c.interval === nextInterval);
+        
+        if (!change) {
+            return { playersOn: [], playersOff: [], nextInterval, subsCount: 0 };
+        }
+        
+        return {
+            playersOn: change.on.map(p => p.name),
+            playersOff: change.off.map(p => p.name),
+            nextInterval,
+            subsCount: change.on.length
+        };
+    }
+    
+    // Update the subs icon badge count
+    updateSubsIconBadge() {
+        if (!this.elements.subsBadge || !this.elements.subsIcon) return;
+        
+        const { subsCount, nextInterval } = this.getNextIntervalSubs();
+        
+        // Show/hide badge based on pending subs count
+        if (subsCount > 0 && nextInterval) {
+            this.elements.subsBadge.textContent = subsCount;
+            this.elements.subsBadge.classList.add('visible');
+        } else {
+            this.elements.subsBadge.classList.remove('visible');
+        }
+    }
+    
+    // Show the subs popup
+    showSubsPopup() {
+        // Remove any existing popup
+        document.querySelector('.subs-popup')?.remove();
+        document.querySelector('.subs-popup-overlay')?.remove();
+        
+        // Get all interval changes (including past ones for reference)
+        const allChanges = this.getIntervalChanges();
+        
+        if (allChanges.length === 0) {
+            // No changes - show simple message
+            const overlay = document.createElement('div');
+            overlay.className = 'subs-popup-overlay';
+            document.body.appendChild(overlay);
+            
+            const popup = document.createElement('div');
+            popup.className = 'subs-popup';
+            popup.innerHTML = '<p class="no-changes">No substitutions planned</p>';
+            
+            const pitchContainer = document.querySelector('.pitch-container');
+            pitchContainer.appendChild(popup);
+            
+            overlay.addEventListener('click', () => {
+                popup.remove();
+                overlay.remove();
+            });
+            return;
+        }
+        
+        // Find the default slide (first upcoming interval that hasn't been applied)
+        const nextUnapplied = (this.state.lastAppliedSubsInterval || 1) + 1;
+        let defaultIndex = allChanges.findIndex(c => c.interval >= nextUnapplied);
+        if (defaultIndex === -1) defaultIndex = allChanges.length - 1;
+        
+        const intervalDurationMins = Math.round(this.settings.matchDuration / this.settings.intervalCount);
+        
+        // Build slides for each interval
+        const slidesHtml = allChanges.map((c, idx) => {
+            const timeStr = `${(c.interval - 1) * intervalDurationMins}'`;
+            const maxLen = Math.max(c.on.length, c.off.length);
+            const isPast = c.interval <= (this.state.lastAppliedSubsInterval || 0);
+            
+            let pairsHtml = '';
+            for (let i = 0; i < maxLen; i++) {
+                const on = c.on[i]?.name || '';
+                const off = c.off[i]?.name || '';
+                if (on || off) {
+                    pairsHtml += `<div class="sub-pair">`;
+                    if (on) pairsHtml += `<span class="sub-in">↑ ${on}</span>`;
+                    if (off) pairsHtml += `<span class="sub-out">↓ ${off}</span>`;
+                    pairsHtml += `</div>`;
+                }
+            }
+            
+            return `
+                <div class="subs-slide ${idx === defaultIndex ? 'active' : ''}" data-index="${idx}">
+                    <div class="sub-change match-event event-sub ${isPast ? 'past' : ''}">
+                        <span class="event-time">${timeStr}</span>
+                        <span class="event-icon">🔄</span>
+                        <span class="event-detail event-detail-subs">
+                            ${pairsHtml}
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        // Build dots if more than one slide
+        const dotsHtml = allChanges.length > 1 
+            ? `<div class="subs-dots">${allChanges.map((c, idx) => {
+                const isPast = c.interval <= (this.state.lastAppliedSubsInterval || 0);
+                return `<span class="subs-dot ${idx === defaultIndex ? 'active' : ''} ${isPast ? 'past' : ''}" data-index="${idx}"></span>`;
+              }).join('')}</div>` 
+            : '';
+        
+        // Create overlay to close on outside click
+        const overlay = document.createElement('div');
+        overlay.className = 'subs-popup-overlay';
+        document.body.appendChild(overlay);
+        
+        // Create popup
+        const popup = document.createElement('div');
+        popup.className = 'subs-popup';
+        popup.innerHTML = `
+            <div class="subs-slider">
+                ${slidesHtml}
+            </div>
+            ${dotsHtml}
+        `;
+        
+        // Position relative to pitch container
+        const pitchContainer = document.querySelector('.pitch-container');
+        pitchContainer.appendChild(popup);
+        
+        // Swipe functionality
+        if (allChanges.length > 1) {
+            let currentSlide = defaultIndex;
+            let startX = 0;
+            let isDragging = false;
+            
+            const slider = popup.querySelector('.subs-slider');
+            const slides = popup.querySelectorAll('.subs-slide');
+            const dots = popup.querySelectorAll('.subs-dot');
+            
+            const goToSlide = (index) => {
+                if (index < 0 || index >= slides.length) return;
+                currentSlide = index;
+                slides.forEach((s, i) => s.classList.toggle('active', i === index));
+                dots.forEach((d, i) => d.classList.toggle('active', i === index));
+            };
+            
+            // Touch events
+            slider.addEventListener('touchstart', (e) => {
+                startX = e.touches[0].clientX;
+                isDragging = true;
+            });
+            
+            slider.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                const endX = e.changedTouches[0].clientX;
+                const diff = startX - endX;
+                
+                if (Math.abs(diff) > 50) {
+                    if (diff > 0) goToSlide(currentSlide + 1);
+                    else goToSlide(currentSlide - 1);
+                }
+            });
+            
+            // Mouse events for desktop
+            slider.addEventListener('mousedown', (e) => {
+                startX = e.clientX;
+                isDragging = true;
+            });
+            
+            slider.addEventListener('mouseup', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                const diff = startX - e.clientX;
+                
+                if (Math.abs(diff) > 50) {
+                    if (diff > 0) goToSlide(currentSlide + 1);
+                    else goToSlide(currentSlide - 1);
+                }
+            });
+            
+            // Dot clicks
+            dots.forEach(dot => {
+                dot.addEventListener('click', () => {
+                    goToSlide(parseInt(dot.dataset.index));
+                });
+            });
+        }
+        
+        // Close on overlay click
+        overlay.addEventListener('click', () => {
+            popup.remove();
+            overlay.remove();
+        });
     }
     
     applyPlannedSubs() {
-        const liveLineup = this.state.liveLineup || [];
-        const plannedLineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        // Next interval to apply (first hold = interval 2, second = interval 3, etc.)
+        const nextInterval = (this.state.lastAppliedSubsInterval || 1) + 1;
         
-        // Find players coming on and going off
-        const playersOn = [];
-        const playersOff = [];
-        
-        for (let i = 0; i < CONFIG.SLOTS_COUNT; i++) {
-            const livePlayer = liveLineup[i];
-            const plannedPlayer = plannedLineup[i];
-            
-            if (livePlayer !== plannedPlayer) {
-                if (plannedPlayer && !liveLineup.includes(plannedPlayer)) {
-                    playersOn.push(plannedPlayer);
-                }
-                if (livePlayer && !plannedLineup.includes(livePlayer)) {
-                    playersOff.push(livePlayer);
-                }
-            }
+        if (nextInterval > this.settings.intervalCount) {
+            this.showToast('No more intervals');
+            return;
         }
         
-        // Finalize minutes for players going off
-        for (const playerId of playersOff) {
-            this.finalizePlayerMinutes(playerId);
+        const prevPlanned = this.state.intervalLineups[nextInterval - 1] || [];
+        const nextPlanned = this.state.intervalLineups[nextInterval] || [];
+        const liveLineup = [...(this.state.liveLineup || [])];
+        
+        // Find who's actually LEAVING (in prev but not in next)
+        const playersLeaving = prevPlanned.filter(id => id && !nextPlanned.includes(id));
+        // Find who's actually JOINING (in next but not in prev)
+        const playersJoining = nextPlanned.filter(id => id && !prevPlanned.includes(id));
+        
+        // Record actual substitutions (players leaving/joining, not position swaps)
+        const subsCount = Math.min(playersLeaving.length, playersJoining.length);
+        for (let i = 0; i < subsCount; i++) {
+            const playerOff = playersLeaving[i];
+            const playerOn = playersJoining[i];
+            this.finalizePlayerMinutes(playerOff);
+            this.startPlayerMinutes(playerOn);
+            this.recordSubstitution(playerOn, playerOff);
         }
         
-        // Start tracking minutes for players coming on
-        for (const playerId of playersOn) {
-            this.startPlayerMinutes(playerId);
-        }
-        
-        // Record substitution events (pair them up)
-        const maxLen = Math.max(playersOn.length, playersOff.length);
-        for (let i = 0; i < maxLen; i++) {
-            const playerIn = playersOn[i];
-            const playerOut = playersOff[i];
-            if (playerIn && playerOut) {
-                this.recordSubstitution(playerIn, playerOut);
-            }
-        }
-        
-        // Apply the planned lineup
-        this.state.liveLineup = [...plannedLineup];
+        // Apply the full planned lineup for this interval
+        this.state.liveLineup = [...nextPlanned];
+        this.state.lastAppliedSubsInterval = nextInterval;
         this.saveState();
         this.renderPitch();
         this.renderBench();
         this.renderStats();
-        this.showToast('Substitutions applied');
+        this.updateSubsIconBadge();
+        
+        // Show toast
+        if (subsCount > 0) {
+            const swapNames = [];
+            for (let i = 0; i < subsCount; i++) {
+                const onName = this.getPlayerById(playersJoining[i])?.name;
+                const offName = this.getPlayerById(playersLeaving[i])?.name;
+                swapNames.push(`${onName}↔${offName}`);
+            }
+            this.showToast(`Int ${nextInterval}: ${swapNames.join(', ')}`);
+        } else {
+            this.showToast(`Interval ${nextInterval}: No subs needed`);
+        }
     }
 
     resetMatch() {
@@ -1495,7 +1824,9 @@ class TeamSelector {
             this.state.startTime = null;
             this.state.pausedElapsedMs = 0;
             this.state.lastTickTime = null;
+            this.state.fullTimeShown = false;
             this.state.currentInterval = 1;
+            this.state.lastAppliedSubsInterval = 0;
             this.state.liveLineup = [...(this.state.intervalLineups[1] || Array(9).fill(null))];
             this.state.scoreUs = 0;
             this.state.scoreThem = 0;
@@ -1506,9 +1837,17 @@ class TeamSelector {
                 p.goals = 0;
                 p.onPitchSinceElapsed = undefined;
             });
+            // Re-enable timer buttons
+            this.elements.playPauseBtn.disabled = false;
+            this.elements.playPauseBtn.textContent = '▶';
+            this.elements.playPauseBtn.classList.remove('btn-secondary');
+            this.elements.playPauseBtn.classList.add('btn-primary');
+            this.elements.stopBtn.disabled = false;
+            
             this.updateTimerDisplay();
             this.updateIntervalDisplay();
             this.updateScoreDisplay();
+            this.updateSubsIconBadge();
             this.renderStats();
             this.renderMatchEvents();
             this.renderPitch();
@@ -2091,6 +2430,11 @@ class TeamSelector {
         this.renderPitch();
         this.renderBench();
         this.renderStats();
+        
+        // Update subs badge in live mode after manual changes
+        if (this.state.mode === MODES.LIVE) {
+            this.updateSubsIconBadge();
+        }
     }
 
     handleDropOnBenchPlayer(benchPlayerId) {
@@ -2125,6 +2469,11 @@ class TeamSelector {
         this.renderPitch();
         this.renderBench();
         this.renderStats();
+        
+        // Update subs badge in live mode after manual changes
+        if (this.state.mode === MODES.LIVE) {
+            this.updateSubsIconBadge();
+        }
     }
 
     // ==================== RENDERING ====================
@@ -2402,13 +2751,25 @@ class TeamSelector {
                 if (changes.length === 0) {
                     this.elements.subsSummary.innerHTML = '<div class="no-subs">No substitutions planned</div>';
                 } else {
-                    this.elements.subsSummary.innerHTML = changes.map(c => `
-                        <div class="sub-change">
-                            <span class="sub-interval">${c.interval}:</span>
-                            ${c.on.map(p => `<span class="sub-on">↑ ${p.name}</span>`).join('')}
-                            ${c.off.map(p => `<span class="sub-off">↓ ${p.name}</span>`).join('')}
-                        </div>
-                    `).join('');
+                    const intervalDurationMins = Math.round(this.settings.matchDuration / this.settings.intervalCount);
+                    this.elements.subsSummary.innerHTML = changes.map(c => {
+                        const timeStr = `${(c.interval - 1) * intervalDurationMins}'`;
+                        const subsHtml = c.on.map((player, idx) => `
+                            <div class="sub-pair">
+                                <span class="sub-in">↑ ${player.name}</span>
+                                <span class="sub-out">↓ ${c.off[idx]?.name || ''}</span>
+                            </div>
+                        `).join('');
+                        return `
+                            <div class="sub-change match-event event-sub">
+                                <span class="event-time">${timeStr}</span>
+                                <span class="event-icon">🔄</span>
+                                <span class="event-detail event-detail-subs">
+                                    ${subsHtml}
+                                </span>
+                            </div>
+                        `;
+                    }).join('');
                 }
                 this.elements.subsSummary.style.display = 'block';
             } else {
@@ -2530,7 +2891,7 @@ class TeamSelector {
             
             if (event.type === 'sub-group') {
                 eventDiv.className = 'match-event event-sub';
-                const timeStr = `${event.minutes}'`;
+                const timeStr = this.formatEventTime(event.minutes * 60);
                 
                 const subsHtml = event.subs.map(sub => `
                     <div class="sub-pair">
@@ -2548,8 +2909,7 @@ class TeamSelector {
                 `;
             } else if (event.type === 'goal') {
                 eventDiv.className = 'match-event event-goal';
-                const minutes = Math.floor(event.time / 60);
-                const timeStr = `${minutes}'`;
+                const timeStr = this.formatEventTime(event.time);
                 const icon = event.team === 'us' ? '⚽' : '🔴';
                 const assistText = event.assist ? ` (assist: ${event.assist})` : '';
                 
@@ -2819,6 +3179,7 @@ class TeamSelector {
         this.state.intervalLineups = plan.intervalLineups;
         this.state.selectedPlanInterval = 1;
         this.state.currentInterval = 1;
+        this.state.lastAppliedSubsInterval = 0;
         
         // Clear URL hash after loading
         history.replaceState(null, '', window.location.pathname);

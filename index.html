@@ -22,8 +22,8 @@
                 </div>
                 <button id="share-plan-btn" class="btn btn-small btn-share">📤 Share</button>
                 <div class="timer-buttons" id="timer-buttons" style="display: none;">
-                    <button id="start-btn" class="btn btn-small btn-primary">▶</button>
-                    <button id="pause-btn" class="btn btn-small btn-secondary" disabled>⏸</button>
+                    <button id="play-pause-btn" class="btn btn-small btn-primary">▶</button>
+                    <button id="stop-btn" class="btn btn-small btn-danger">⏹</button>
                 </div>
             </div>
         </header>
@@ -68,6 +68,10 @@
         </section>
 
         <main class="pitch-container">
+            <div class="subs-icon" id="subs-icon">
+                🔄
+                <span class="subs-badge" id="subs-badge"></span>
+            </div>
             <div class="pitch-actions" id="pitch-actions">
                 <button id="auto-subs-btn" class="btn btn-small btn-primary">Auto</button>
                 <button id="clear-team-btn" class="btn btn-small">Clear</button>
@@ -195,6 +199,7 @@
     <!-- Toast Notifications -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="app.js"></script>
+    <!-- Modular app -->
+    <script type="module" src="src/app.js"></script>
 </body>
 </html>
