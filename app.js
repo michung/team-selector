@@ -7,7 +7,7 @@ const CONFIG = {
     DRAG_THRESHOLD: 10,
     SCORING_ANIMATION_MS: 500,
     SLOTS_COUNT: 9,
-    SPEEDS: [1, 5, 10],
+    SPEEDS: [1, 10, 20],
     HAPTIC_PATTERNS: {
         GOAL_US: [100, 50, 100],
         GOAL_THEM: 100
@@ -45,6 +45,7 @@ const DEFAULT_STATE = {
     selectedPlanInterval: 1,
     players: [],
     intervalLineups: {},
+    liveLineup: null,          // Actual lineup during live match (separate from planned)
     lastIntervalTime: 0,
     scoreUs: 0,
     scoreThem: 0,
@@ -330,14 +331,16 @@ class TeamSelector {
         if (this.state.mode === 'plan') {
             return this.state.intervalLineups[this.state.selectedPlanInterval] || Array(9).fill(null);
         }
-        return this.state.intervalLineups[this.state.currentInterval] || Array(9).fill(null);
+        // In live mode, use the actual live lineup (not planned interval lineups)
+        return this.state.liveLineup || this.state.intervalLineups[1] || Array(9).fill(null);
     }
 
     setCurrentLineup(lineup) {
         if (this.state.mode === 'plan') {
             this.state.intervalLineups[this.state.selectedPlanInterval] = lineup;
         } else {
-            this.state.intervalLineups[this.state.currentInterval] = lineup;
+            // In live mode, update the actual live lineup
+            this.state.liveLineup = lineup;
         }
         this.saveState();
     }
@@ -425,10 +428,60 @@ class TeamSelector {
             this.elements.liveHintOverlay.classList.add('hidden');
         });
 
+        // Swipe left/right to switch between Plan and Live modes
+        this.setupSwipeToSwitchMode();
+
         // Set initial values
         this.elements.matchDuration.value = this.settings.matchDuration;
         this.elements.intervalCount.textContent = this.settings.intervalCount;
         this.updateSubsDisplay();
+    }
+
+    setupSwipeToSwitchMode() {
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        
+        const container = document.querySelector('.app-container');
+        if (!container) return;
+        
+        container.addEventListener('touchstart', (e) => {
+            // Ignore if touching a player card (let drag handle it)
+            if (e.target.closest('.player-card')) return;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchStartTime = Date.now();
+        }, { passive: true });
+        
+        container.addEventListener('touchend', (e) => {
+            if (!touchStartTime) return;
+            
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            const elapsed = Date.now() - touchStartTime;
+            
+            // Reset
+            touchStartTime = 0;
+            
+            // Must be a quick horizontal swipe (not a slow drag or vertical scroll)
+            const minSwipeDistance = 80;
+            const maxSwipeTime = 300;
+            const maxVerticalDrift = 100;
+            
+            if (elapsed > maxSwipeTime) return;
+            if (Math.abs(deltaY) > maxVerticalDrift) return;
+            if (Math.abs(deltaX) < minSwipeDistance) return;
+            
+            if (deltaX < 0 && this.state.mode === 'plan') {
+                // Swipe left: Plan → Live
+                this.setMode('live');
+            } else if (deltaX > 0 && this.state.mode === 'live') {
+                // Swipe right: Live → Plan
+                this.setMode('plan');
+            }
+        }, { passive: true });
     }
     
     // Get max possible bench size based on current players
@@ -847,7 +900,7 @@ class TeamSelector {
 
     // Start tracking minutes for a player coming onto pitch
     startPlayerMinutes(playerId) {
-        if (this.state.mode !== 'live' || !this.state.isRunning) return;
+        if (this.state.mode !== 'live') return;
         const player = this.getPlayerById(playerId);
         if (player) {
             player.onPitchSinceElapsed = this.getElapsedSeconds();
@@ -907,6 +960,10 @@ class TeamSelector {
         
         // Show live hint overlay when switching to live mode
         if (mode === 'live') {
+            // Initialize live lineup from interval 1 if not already set
+            if (!this.state.liveLineup) {
+                this.state.liveLineup = [...(this.state.intervalLineups[1] || Array(9).fill(null))];
+            }
             this.elements.liveHintOverlay.classList.remove('hidden');
             setTimeout(() => this.elements.liveHintOverlay.classList.add('hidden'), 3000);
         }
@@ -1158,17 +1215,121 @@ class TeamSelector {
     }
 
     showIntervalNotification() {
+        // Compare current live lineup with planned lineup for this interval
+        const liveLineup = this.state.liveLineup || [];
+        const plannedLineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        
+        // Find players who should come on and go off according to plan
+        const playersOn = [];
+        const playersOff = [];
+        
+        for (let i = 0; i < CONFIG.SLOTS_COUNT; i++) {
+            const livePlayer = liveLineup[i];
+            const plannedPlayer = plannedLineup[i];
+            
+            if (livePlayer !== plannedPlayer) {
+                if (plannedPlayer && !liveLineup.includes(plannedPlayer)) {
+                    playersOn.push(this.getPlayerById(plannedPlayer)?.name || 'Unknown');
+                }
+                if (livePlayer && !plannedLineup.includes(livePlayer)) {
+                    playersOff.push(this.getPlayerById(livePlayer)?.name || 'Unknown');
+                }
+            }
+        }
+        
+        const hasChanges = playersOn.length > 0 || playersOff.length > 0;
+        
+        // Build substitutions HTML
+        let subsHtml = '';
+        if (!hasChanges) {
+            subsHtml = '<p class="no-changes">No substitutions planned</p>';
+        } else {
+            const maxLen = Math.max(playersOn.length, playersOff.length);
+            subsHtml = '<div class="subs-list">';
+            for (let i = 0; i < maxLen; i++) {
+                const on = playersOn[i] || '';
+                const off = playersOff[i] || '';
+                if (on && off) {
+                    subsHtml += `<div class="sub-row"><span class="player-off">⬇️ ${off}</span><span class="player-on">⬆️ ${on}</span></div>`;
+                } else if (on) {
+                    subsHtml += `<div class="sub-row"><span class="player-on">⬆️ ${on}</span></div>`;
+                } else if (off) {
+                    subsHtml += `<div class="sub-row"><span class="player-off">⬇️ ${off}</span></div>`;
+                }
+            }
+            subsHtml += '</div>';
+        }
+        
+        // Create backdrop overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'interval-indicator-overlay';
+        document.body.appendChild(overlay);
+        
         const notification = document.createElement('div');
         notification.className = 'interval-indicator';
         notification.innerHTML = `
             <h2>🔄 Interval ${this.state.currentInterval}</h2>
-            <p>Time to make substitutions!</p>
+            <p>Planned substitutions</p>
+            ${subsHtml}
+            <div class="interval-buttons">
+                ${hasChanges ? '<button class="apply-btn">Apply</button>' : ''}
+                <button class="dismiss-btn">${hasChanges ? 'Skip' : 'OK'}</button>
+            </div>
         `;
         document.body.appendChild(notification);
-
-        setTimeout(() => {
+        
+        const dismiss = () => {
+            overlay.remove();
             notification.remove();
-        }, 3000);
+        };
+        
+        // Apply planned subs
+        if (hasChanges) {
+            notification.querySelector('.apply-btn').addEventListener('click', () => {
+                this.applyPlannedSubs();
+                dismiss();
+            });
+        }
+        
+        // Dismiss
+        notification.querySelector('.dismiss-btn').addEventListener('click', dismiss);
+    }
+    
+    applyPlannedSubs() {
+        const liveLineup = this.state.liveLineup || [];
+        const plannedLineup = this.state.intervalLineups[this.state.currentInterval] || [];
+        
+        // Finalize minutes for players going off
+        for (let i = 0; i < CONFIG.SLOTS_COUNT; i++) {
+            const livePlayer = liveLineup[i];
+            const plannedPlayer = plannedLineup[i];
+            
+            if (livePlayer !== plannedPlayer) {
+                if (livePlayer && !plannedLineup.includes(livePlayer)) {
+                    this.finalizePlayerMinutes(livePlayer);
+                }
+            }
+        }
+        
+        // Start tracking minutes for players coming on
+        for (let i = 0; i < CONFIG.SLOTS_COUNT; i++) {
+            const livePlayer = liveLineup[i];
+            const plannedPlayer = plannedLineup[i];
+            
+            if (livePlayer !== plannedPlayer) {
+                if (plannedPlayer && !liveLineup.includes(plannedPlayer)) {
+                    this.startPlayerMinutes(plannedPlayer);
+                }
+            }
+        }
+        
+        // Apply the planned lineup
+        this.state.liveLineup = [...plannedLineup];
+        this.saveState();
+        this.renderPitch();
+        this.renderBench();
+        this.renderStats();
+        this.showToast('Substitutions applied');
     }
 
     resetMatch() {
@@ -1178,6 +1339,7 @@ class TeamSelector {
             this.state.pausedElapsedMs = 0;
             this.state.lastTickTime = null;
             this.state.currentInterval = 1;
+            this.state.liveLineup = [...(this.state.intervalLineups[1] || Array(9).fill(null))];
             this.state.scoreUs = 0;
             this.state.scoreThem = 0;
             this.state.goalHistory = [];
