@@ -11,7 +11,7 @@ export const CONFIG = {
         GOAL_THEM: 100
     },
     INTERVAL_LIMITS: { MIN: 1, MAX: 6 },
-    DEFAULT_MATCH_DURATION: 60
+    DEFAULT_MATCH_DURATION: 10
 };
 
 // String constants to avoid magic strings
@@ -39,9 +39,12 @@ export const DEFAULT_STATE = {
     startTime: null,
     pausedElapsedMs: 0,
     lastTickTime: null,
+    halfTimeShown: false,
     fullTimeShown: false,
     matchStarted: false,
     matchEnded: false,
+    halfTimeTaken: false,
+    secondHalfStarted: false,
     currentInterval: 1,
     lastAppliedSubsInterval: 0,
     selectedPlanInterval: 1,

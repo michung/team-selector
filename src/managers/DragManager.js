@@ -230,7 +230,8 @@ export class DragManager {
             element.classList.remove('dragging');
             element.classList.remove('pressed');
             
-            if (longPressTriggered) {
+            // Check both local flag AND class-level flag (for re-render case)
+            if (longPressTriggered || this.longPressJustTriggered) {
                 e.preventDefault();
                 e.stopPropagation();
                 // Use class property to reliably block click events

@@ -81,6 +81,12 @@ export class TeamSelector {
         
         // Set initial mode to show appropriate hints and UI
         this.setMode(this.state.mode);
+        
+        // Restore stop button text based on match state
+        this.timer.updateStopButtonText();
+        
+        // Show export button if match already ended
+        this.updateExportButtonVisibility();
     }
 
     /**
@@ -116,7 +122,8 @@ export class TeamSelector {
             hintScore: document.getElementById('hint-score'),
             hintPin: document.getElementById('hint-pin'),
             intervalCount: document.getElementById('interval-count'),
-            subsCount: document.getElementById('subs-count')
+            subsCount: document.getElementById('subs-count'),
+            exportStatsBtn: document.getElementById('export-stats-btn')
         };
     }
 
@@ -250,6 +257,71 @@ export class TeamSelector {
     }
 
     /**
+     * Export game stats to clipboard as CSV
+     */
+    exportStats() {
+        const lines = [];
+        
+        // Starting lineup
+        const starters = this.state.players
+            .filter(p => p.startedGame)
+            .map(p => p.name);
+        lines.push('Starting Lineup');
+        lines.push(starters.join(', '));
+        lines.push('');
+        
+        // Player stats table
+        const headers = ['Player', 'Started', 'Minutes', 'Goals', 'Assists'];
+        lines.push(headers.join(','));
+        
+        // Get all players sorted by minutes descending
+        const players = [...this.state.players]
+            .sort((a, b) => (b.minutesPlayed || 0) - (a.minutesPlayed || 0));
+        
+        // Add player rows
+        for (const player of players) {
+            const row = [
+                player.name,
+                player.startedGame ? 'Yes' : 'No',
+                player.minutesPlayed || 0,
+                player.goals || 0,
+                player.assists || 0
+            ];
+            lines.push(row.join(','));
+        }
+        
+        // Final score
+        lines.push('');
+        lines.push(`Final Score,${this.state.scoreUs} - ${this.state.scoreThem}`);
+        
+        // Plan URL
+        lines.push('');
+        const encoded = this.encodePlan();
+        const url = `${window.location.origin}${window.location.pathname}#${encoded}`;
+        lines.push('Plan URL');
+        lines.push(url);
+        
+        const output = lines.join('\n');
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(output).then(() => {
+            this.showToast('Stats copied to clipboard!', 'success');
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            this.showToast('Failed to copy stats');
+        });
+    }
+
+    /**
+     * Update export button visibility based on match state
+     */
+    updateExportButtonVisibility() {
+        if (this.elements.exportStatsBtn) {
+            this.elements.exportStatsBtn.style.display = this.state.matchEnded ? 'inline-block' : 'none';
+        }
+    }
+
+    /**
      * Update score display with optional flash effect
      */
     updateScoreDisplay(flashTeam = null) {
@@ -300,7 +372,17 @@ export class TeamSelector {
     showSubsPopup() { return this.subs.showPopup(); }
 
     // Timer
-    toggleTimer() { return this.timer.toggle(); }
+    toggleTimer() {
+        // Don't start if no players on pitch
+        if (!this.state.isRunning) {
+            const playersOnPitch = (this.state.liveLineup || []).filter(id => id !== null).length;
+            if (playersOnPitch === 0) {
+                this.showToast('Add players to the pitch first');
+                return;
+            }
+        }
+        return this.timer.toggle();
+    }
     stopMatch() { return this.timer.stop(); }
 
     // Events  
@@ -330,7 +412,7 @@ export class TeamSelector {
             const playerId = parseInt(card.dataset.playerId);
             const player = this.getPlayerById(playerId);
             if (player) {
-                const mins = Math.round(player.minutesPlayed || 0);
+                const mins = Math.floor(player.minutesPlayed || 0);
                 const minsEl = card.querySelector('.player-minutes');
                 if (minsEl) minsEl.textContent = `${mins}'`;
             }
@@ -338,19 +420,26 @@ export class TeamSelector {
     }
     
     getDisplayMinutes(player, currentElapsed) {
+        // Cap elapsed at current half duration so minutes don't count in additional time
+        const cappedElapsed = Math.min(currentElapsed, this.timer.currentHalfDurationSeconds);
         let mins = player.minutesPlayed || 0;
         if (player.onPitchSinceElapsed !== undefined) {
-            mins += (currentElapsed - player.onPitchSinceElapsed) / 60;
+            // Also cap onPitchSinceElapsed to prevent negative minutes for players subbed on during additional time
+            const cappedSince = Math.min(player.onPitchSinceElapsed, this.timer.currentHalfDurationSeconds);
+            mins += (cappedElapsed - cappedSince) / 60;
         }
-        return Math.round(mins);
+        return Math.floor(Math.max(0, mins));
     }
 
     finalizePlayerMinutes(playerId) {
         if (this.state.mode !== MODES.LIVE || !this.state.isRunning) return;
         const player = this.getPlayerById(playerId);
         if (player && player.onPitchSinceElapsed !== undefined) {
-            const currentElapsed = this.getElapsedSeconds();
-            player.minutesPlayed += (currentElapsed - player.onPitchSinceElapsed) / 60;
+            // Cap both elapsed times to prevent counting additional time
+            const halfDuration = this.timer.currentHalfDurationSeconds;
+            const currentElapsed = Math.min(this.getElapsedSeconds(), halfDuration);
+            const cappedSince = Math.min(player.onPitchSinceElapsed, halfDuration);
+            player.minutesPlayed += Math.max(0, (currentElapsed - cappedSince) / 60);
             player.onPitchSinceElapsed = undefined;
         }
     }
@@ -359,18 +448,22 @@ export class TeamSelector {
         if (this.state.mode !== MODES.LIVE || !this.state.isRunning) return;
         const player = this.getPlayerById(playerId);
         if (player) {
-            player.onPitchSinceElapsed = this.getElapsedSeconds();
+            // Cap at half duration - players subbed on during additional time start at 0 effective minutes
+            player.onPitchSinceElapsed = Math.min(this.getElapsedSeconds(), this.timer.currentHalfDurationSeconds);
         }
     }
 
     finalizeAllOnPitchMinutes() {
-        const currentElapsed = Math.min(this.getElapsedSeconds(), this.matchDurationSeconds);
+        const halfDuration = this.timer.currentHalfDurationSeconds;
+        const currentElapsed = Math.min(this.getElapsedSeconds(), halfDuration);
         const lineup = this.getCurrentLineup();
         lineup.forEach(playerId => {
             if (playerId !== null) {
                 const player = this.getPlayerById(playerId);
                 if (player && player.onPitchSinceElapsed !== undefined) {
-                    player.minutesPlayed += (currentElapsed - player.onPitchSinceElapsed) / 60;
+                    // Cap onPitchSinceElapsed to prevent negative minutes for players subbed on during additional time
+                    const cappedSince = Math.min(player.onPitchSinceElapsed, halfDuration);
+                    player.minutesPlayed += Math.max(0, (currentElapsed - cappedSince) / 60);
                     player.onPitchSinceElapsed = undefined;
                 }
             }
@@ -454,6 +547,9 @@ export class TeamSelector {
         // Settings
         document.getElementById('toggle-settings').addEventListener('click', () => this.toggleSettings());
         document.getElementById('toggle-squad').addEventListener('click', () => this.toggleSquad());
+        
+        // Export stats button
+        this.elements.exportStatsBtn?.addEventListener('click', () => this.exportStats());
         
         // Share plan button
         this.elements.sharePlanBtn?.addEventListener('click', () => this.sharePlan());
@@ -670,6 +766,7 @@ export class TeamSelector {
                 p.minutesPlayed = 0;
                 p.goals = 0;
                 p.assists = 0;
+                p.startedGame = false;
                 p.onPitchSinceElapsed = undefined;
             });
             
@@ -679,6 +776,7 @@ export class TeamSelector {
             this.renderStats();
             this.events.renderMatchEvents();
             this.updateSubsIconBadge();
+            this.updateExportButtonVisibility();
             this.saveState();
             this.showToast('Match reset');
         }

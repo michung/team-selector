@@ -133,6 +133,7 @@ export class EventManager {
         this.state.matchEvents.push({
             type: 'goal',
             time: goalTime,
+            half: this.state.halfTimeTaken ? 2 : 1,
             team,
             scorer: scorerName,
             assist: assistName,
@@ -213,6 +214,35 @@ export class EventManager {
     }
 
     /**
+     * Record second half kick off event
+     */
+    recordSecondHalfKickOff() {
+        if (this.state.mode !== MODES.LIVE) return;
+        
+        this.state.matchEvents.push({
+            type: 'secondhalfkickoff',
+            time: this.app.timer.getElapsedSeconds()
+        });
+        this.renderMatchEvents();
+        this.app.saveState();
+    }
+
+    /**
+     * Record half time event
+     */
+    recordHalfTime(elapsedSeconds = null) {
+        if (this.state.mode !== MODES.LIVE) return;
+        
+        this.state.matchEvents.push({
+            type: 'halftime',
+            time: elapsedSeconds !== null ? elapsedSeconds : this.app.timer.getElapsedSeconds(),
+            score: `${this.state.scoreUs} - ${this.state.scoreThem}`
+        });
+        this.renderMatchEvents();
+        this.app.saveState();
+    }
+
+    /**
      * Record full time event
      */
     recordFullTime() {
@@ -242,6 +272,7 @@ export class EventManager {
         this.state.matchEvents.push({
             type: 'sub',
             time: this.app.timer.getElapsedSeconds(),
+            half: this.state.halfTimeTaken ? 2 : 1,
             playerIn: playerIn.name,
             playerOut: playerOut.name
         });
@@ -249,9 +280,74 @@ export class EventManager {
     }
 
     /**
-     * Format event time for display
+     * Format event time for display (handles additional time)
+     * @param {number} seconds - elapsed seconds
+     * @param {string} eventType - optional event type for special handling
+     * @param {number} half - which half the event occurred in (1 or 2)
      */
-    formatEventTime(seconds) {
+    formatEventTime(seconds, eventType = null, half = null) {
+        const halfDuration = this.app.timer.matchDurationSeconds / 2;
+        const fullDuration = this.app.timer.matchDurationSeconds;
+        
+        // Half time event always uses first-half cap
+        if (eventType === 'halftime' && seconds >= halfDuration) {
+            const halfMins = Math.floor(halfDuration / 60);
+            const additionalMins = Math.floor((seconds - halfDuration) / 60);
+            if (additionalMins > 0) {
+                return `${halfMins}'+${additionalMins}'`;
+            }
+            return `${halfMins}'`;
+        }
+        
+        // If half is specified, use it to determine additional time
+        if (half === 1 && seconds >= halfDuration) {
+            // First half additional time
+            const halfMins = Math.floor(halfDuration / 60);
+            const additionalMins = Math.floor((seconds - halfDuration) / 60);
+            if (additionalMins > 0) {
+                return `${halfMins}'+${additionalMins}'`;
+            }
+            return `${halfMins}'`;
+        }
+        
+        if (half === 2 && seconds >= fullDuration) {
+            // Second half additional time
+            const matchMins = Math.floor(fullDuration / 60);
+            const additionalMins = Math.floor((seconds - fullDuration) / 60);
+            if (additionalMins > 0) {
+                return `${matchMins}'+${additionalMins}'`;
+            }
+            return `${matchMins}'`;
+        }
+        
+        // Fallback: use heuristics if half not specified
+        const htEvent = this.state.matchEvents.find(e => e.type === 'halftime');
+        const htTime = htEvent ? htEvent.time : null;
+        
+        // Second half additional time (past full match duration)
+        if (seconds >= fullDuration) {
+            const matchMins = Math.floor(fullDuration / 60);
+            const additionalMins = Math.floor((seconds - fullDuration) / 60);
+            if (additionalMins > 0) {
+                return `${matchMins}'+${additionalMins}'`;
+            }
+            return `${matchMins}'`;
+        }
+        
+        // First half additional time (past half duration, but before HT was recorded OR no HT yet)
+        if (seconds >= halfDuration) {
+            const isFirstHalfAdditional = htTime ? seconds <= htTime : !this.state.halfTimeTaken;
+            if (isFirstHalfAdditional) {
+                const halfMins = Math.floor(halfDuration / 60);
+                const additionalMins = Math.floor((seconds - halfDuration) / 60);
+                if (additionalMins > 0) {
+                    return `${halfMins}'+${additionalMins}'`;
+                }
+                return `${halfMins}'`;
+            }
+        }
+        
+        // Normal time
         const mins = Math.floor(seconds / 60);
         return `${mins}'`;
     }
@@ -333,7 +429,9 @@ export class EventManager {
         
         if (event.type === 'sub-group') {
             div.className = 'match-event event-sub';
-            const timeStr = this.formatEventTime(event.minutes * 60);
+            // Get half from first sub in group
+            const half = event.subs[0]?.half || null;
+            const timeStr = this.formatEventTime(event.minutes * 60, null, half);
             
             const subsHtml = event.subs.map(sub => `
                 <div class="sub-pair">
@@ -349,7 +447,7 @@ export class EventManager {
             `;
         } else if (event.type === 'goal') {
             div.className = 'match-event event-goal';
-            const timeStr = this.formatEventTime(event.time);
+            const timeStr = this.formatEventTime(event.time, null, event.half);
             const icon = event.team === 'us' ? '⚽' : '🔴';
             const assistText = event.assist ? ` (assist: ${event.assist})` : '';
             
@@ -373,6 +471,25 @@ export class EventManager {
                 <span class="event-time">0'</span>
                 <span class="event-icon">🏁</span>
                 <span class="event-detail"><strong>KICK OFF</strong></span>
+            `;
+        } else if (event.type === 'halftime') {
+            div.className = 'match-event event-halftime';
+            const timeStr = this.formatEventTime(event.time, 'halftime');
+            div.innerHTML = `
+                <span class="event-time">${timeStr}</span>
+                <span class="event-icon">⏸</span>
+                <span class="event-detail">
+                    <strong>HALF TIME</strong>
+                    <span class="event-score">${event.score}</span>
+                </span>
+            `;
+        } else if (event.type === 'secondhalfkickoff') {
+            div.className = 'match-event event-kickoff';
+            const timeStr = this.formatEventTime(event.time);
+            div.innerHTML = `
+                <span class="event-time">${timeStr}</span>
+                <span class="event-icon">🏁</span>
+                <span class="event-detail"><strong>2ND HALF KICK OFF</strong></span>
             `;
         } else if (event.type === 'fulltime') {
             div.className = 'match-event event-fulltime';

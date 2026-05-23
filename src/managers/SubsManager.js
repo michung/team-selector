@@ -56,11 +56,27 @@ export class SubsManager {
             return { playersOn: [], playersOff: [], nextInterval, subsCount: 0 };
         }
         
+        // Count only valid subs (player on is on bench, player off is on pitch)
+        const benchIds = this.app.getBenchPlayers().map(p => p.id);
+        const pitchIds = this.state.liveLineup || [];
+        
+        let validSubsCount = 0;
+        const maxLen = Math.min(change.on.length, change.off.length);
+        for (let i = 0; i < maxLen; i++) {
+            const onPlayer = change.on[i];
+            const offPlayer = change.off[i];
+            if (onPlayer && offPlayer && 
+                benchIds.includes(onPlayer.id) && 
+                pitchIds.includes(offPlayer.id)) {
+                validSubsCount++;
+            }
+        }
+        
         return {
             playersOn: change.on.map(p => p.name),
             playersOff: change.off.map(p => p.name),
             nextInterval,
-            subsCount: change.on.length
+            subsCount: validSubsCount
         };
     }
 
@@ -84,18 +100,42 @@ export class SubsManager {
         // Find who's actually JOINING (in next but not in prev)  
         const playersJoining = nextPlanned.filter(id => id && !prevPlanned.includes(id));
         
-        // Record actual substitutions (players leaving/joining, not position swaps)
+        // Get current bench and pitch for validation
+        const benchIds = this.app.getBenchPlayers().map(p => p.id);
+        const currentLiveLineup = [...this.state.liveLineup];
+        
+        // Filter to only valid subs (player on is on bench, player off is on pitch)
+        const validSubs = [];
+        const skippedSubs = [];
         const subsCount = Math.min(playersLeaving.length, playersJoining.length);
+        
         for (let i = 0; i < subsCount; i++) {
             const playerOff = playersLeaving[i];
             const playerOn = playersJoining[i];
-            this.app.finalizePlayerMinutes(playerOff);
-            this.app.startPlayerMinutes(playerOn);
-            this.app.recordSubstitution(playerOn, playerOff);
+            
+            const isOnBench = benchIds.includes(playerOn);
+            const isOffPitch = currentLiveLineup.includes(playerOff);
+            
+            if (isOnBench && isOffPitch) {
+                validSubs.push({ playerOn, playerOff });
+            } else {
+                const onName = this.app.getPlayerById(playerOn)?.name || 'Unknown';
+                const offName = this.app.getPlayerById(playerOff)?.name || 'Unknown';
+                skippedSubs.push(`${onName}↔${offName}`);
+            }
         }
         
-        // Apply the full planned lineup for this interval
-        this.state.liveLineup = [...nextPlanned];
+        // Apply valid subs
+        for (const { playerOn, playerOff } of validSubs) {
+            const pitchIdx = this.state.liveLineup.indexOf(playerOff);
+            if (pitchIdx !== -1) {
+                this.app.finalizePlayerMinutes(playerOff);
+                this.app.startPlayerMinutes(playerOn);
+                this.app.recordSubstitution(playerOn, playerOff);
+                this.state.liveLineup[pitchIdx] = playerOn;
+            }
+        }
+        
         this.state.lastAppliedSubsInterval = nextInterval;
         this.app.saveState();
         this.app.renderPitch();
@@ -104,16 +144,67 @@ export class SubsManager {
         this.updateBadge();
         
         // Show toast
-        if (subsCount > 0) {
-            const swapNames = playersJoining.map((id, i) => {
-                const onName = this.app.getPlayerById(id)?.name;
-                const offName = this.app.getPlayerById(playersLeaving[i])?.name;
+        if (validSubs.length > 0) {
+            const swapNames = validSubs.map(({ playerOn, playerOff }) => {
+                const onName = this.app.getPlayerById(playerOn)?.name;
+                const offName = this.app.getPlayerById(playerOff)?.name;
                 return `${onName}↔${offName}`;
             });
-            this.app.showToast(`Int ${nextInterval}: ${swapNames.join(', ')}`);
+            let msg = `Int ${nextInterval}: ${swapNames.join(', ')}`;
+            if (skippedSubs.length > 0) {
+                msg += ` (skipped: ${skippedSubs.join(', ')})`;
+            }
+            this.app.showToast(msg);
+        } else if (skippedSubs.length > 0) {
+            this.app.showToast(`Int ${nextInterval}: Skipped ${skippedSubs.join(', ')}`);
         } else {
             this.app.showToast(`Interval ${nextInterval}: No subs needed`);
         }
+    }
+
+    /**
+     * Perform a single manual substitution from the popup
+     */
+    performManualSub(playerOnId, playerOffId, btn, popup, overlay) {
+        // Check if player on is actually on bench
+        const benchIds = this.app.getBenchPlayers().map(p => p.id);
+        if (!benchIds.includes(playerOnId)) {
+            this.app.showToast('Player not on bench');
+            return;
+        }
+        
+        // Check if player off is actually on pitch
+        const pitchIdx = this.state.liveLineup.indexOf(playerOffId);
+        if (pitchIdx === -1) {
+            this.app.showToast('Player not on pitch');
+            return;
+        }
+        
+        // Finalize minutes for player going off, start for player coming on
+        this.app.finalizePlayerMinutes(playerOffId);
+        this.app.startPlayerMinutes(playerOnId);
+        
+        // Record the substitution
+        this.app.recordSubstitution(playerOnId, playerOffId);
+        
+        // Update the live lineup
+        this.state.liveLineup[pitchIdx] = playerOnId;
+        
+        this.app.saveState();
+        this.app.renderPitch();
+        this.app.renderBench();
+        this.app.renderStats();
+        this.updateBadge();
+        
+        // Update button to show it's done
+        btn.textContent = '✓';
+        btn.disabled = true;
+        btn.classList.add('done');
+        
+        // Show toast
+        const onName = this.app.getPlayerById(playerOnId)?.name;
+        const offName = this.app.getPlayerById(playerOffId)?.name;
+        this.app.showToast(`${onName} ↔ ${offName}`);
     }
 
     /**
@@ -137,6 +228,29 @@ export class SubsManager {
     /**
      * Show the subs popup with all planned changes
      */
+    /**
+     * Check if an interval has any actionable subs (valid and not past)
+     */
+    hasActionableSubs(change) {
+        const isPast = change.interval <= (this.state.lastAppliedSubsInterval || 0);
+        if (isPast) return false;
+        
+        const benchIds = this.app.getBenchPlayers().map(p => p.id);
+        const pitchIds = this.state.liveLineup || [];
+        
+        const maxLen = Math.min(change.on.length, change.off.length);
+        for (let i = 0; i < maxLen; i++) {
+            const onPlayer = change.on[i];
+            const offPlayer = change.off[i];
+            if (onPlayer && offPlayer &&
+                benchIds.includes(onPlayer.id) &&
+                pitchIds.includes(offPlayer.id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     showPopup() {
         // Remove any existing popup
         document.querySelector('.subs-popup')?.remove();
@@ -149,12 +263,39 @@ export class SubsManager {
             return;
         }
         
-        // Find the default slide (first upcoming interval that hasn't been applied)
-        const nextUnapplied = (this.state.lastAppliedSubsInterval || 1) + 1;
-        let defaultIndex = allChanges.findIndex(c => c.interval >= nextUnapplied);
-        if (defaultIndex === -1) defaultIndex = allChanges.length - 1;
-        
         const intervalDurationMins = Math.round(this.settings.matchDuration / this.settings.intervalCount);
+        const elapsedMins = this.app.getElapsedSeconds() / 60;
+        
+        // Find the interval that matches current game time
+        // Select the interval where (interval-1) * duration <= elapsed < interval * duration
+        // i.e. if interval 2 is at 3', select it when game time is 3:00 - 5:59
+        let defaultIndex = allChanges.findIndex(c => {
+            const intervalStartMins = (c.interval - 1) * intervalDurationMins;
+            const intervalEndMins = c.interval * intervalDurationMins;
+            return elapsedMins >= intervalStartMins && elapsedMins < intervalEndMins;
+        });
+        
+        // If no match (before first interval or after all), find best fallback
+        if (defaultIndex === -1) {
+            // If elapsed is past all intervals, show the last one
+            // If elapsed is before first change, show the first one
+            const firstIntervalStart = (allChanges[0].interval - 1) * intervalDurationMins;
+            if (elapsedMins < firstIntervalStart) {
+                defaultIndex = 0;
+            } else {
+                defaultIndex = allChanges.length - 1;
+            }
+        }
+        
+        // If selected interval has no actionable subs, try to find the next one that does
+        if (!this.hasActionableSubs(allChanges[defaultIndex])) {
+            for (let i = defaultIndex + 1; i < allChanges.length; i++) {
+                if (this.hasActionableSubs(allChanges[i])) {
+                    defaultIndex = i;
+                    break;
+                }
+            }
+        }
         
         // Build slides for each interval
         const slidesHtml = this.buildSlidesHtml(allChanges, intervalDurationMins, defaultIndex);
@@ -180,10 +321,28 @@ export class SubsManager {
             this.setupSliderNavigation(popup, defaultIndex);
         }
         
+        // Set up manual sub trigger buttons
+        popup.querySelectorAll('.sub-trigger-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Don't close popup
+                const onId = parseInt(btn.dataset.on);
+                const offId = parseInt(btn.dataset.off);
+                this.performManualSub(onId, offId, btn, popup, overlay);
+            });
+        });
+        
         // Close on overlay click
         overlay.addEventListener('click', () => {
             popup.remove();
             overlay.remove();
+        });
+        
+        // Close on popup click (but not on buttons or navigation dots)
+        popup.addEventListener('click', (e) => {
+            if (!e.target.closest('.sub-trigger-btn') && !e.target.closest('.subs-dot')) {
+                popup.remove();
+                overlay.remove();
+            }
         });
     }
 
@@ -206,12 +365,21 @@ export class SubsManager {
             popup.remove();
             overlay.remove();
         });
+        
+        popup.addEventListener('click', () => {
+            popup.remove();
+            overlay.remove();
+        });
     }
 
     /**
      * Build HTML for popup slides
      */
     buildSlidesHtml(allChanges, intervalDurationMins, defaultIndex) {
+        // Get current bench and pitch players for validation
+        const benchIds = this.app.getBenchPlayers().map(p => p.id);
+        const pitchIds = this.state.liveLineup || [];
+        
         return allChanges.map((c, idx) => {
             const timeStr = `${(c.interval - 1) * intervalDurationMins}'`;
             const maxLen = Math.max(c.on.length, c.off.length);
@@ -221,10 +389,22 @@ export class SubsManager {
             for (let i = 0; i < maxLen; i++) {
                 const onPlayer = c.on[i];
                 const offPlayer = c.off[i];
+                
+                // Check if sub is valid: player on must be on bench, player off must be on pitch
+                const isOnBench = onPlayer && benchIds.includes(onPlayer.id);
+                const isOffPitch = offPlayer && pitchIds.includes(offPlayer.id);
+                const isValid = isOnBench && isOffPitch;
+                const canSub = onPlayer && offPlayer && !isPast;
+                
+                // Add classes for invalid subs
+                const onClass = !isOnBench && onPlayer ? 'invalid' : '';
+                const offClass = !isOffPitch && offPlayer ? 'invalid' : '';
+                
                 pairsHtml += `
-                    <div class="sub-change ${isPast ? 'past' : ''}">
-                        <span class="sub-in">↑ ${onPlayer?.name || ''}</span>
-                        <span class="sub-out">↓ ${offPlayer?.name || ''}</span>
+                    <div class="sub-change ${isPast ? 'past' : ''} ${!isValid && !isPast ? 'unavailable' : ''}">
+                        <span class="sub-in ${onClass}">↑ ${onPlayer?.name || ''}</span>
+                        <span class="sub-out ${offClass}">↓ ${offPlayer?.name || ''}</span>
+                        ${canSub ? `<button class="sub-trigger-btn ${!isValid ? 'disabled' : ''}" data-on="${onPlayer.id}" data-off="${offPlayer.id}" ${!isValid ? 'disabled' : ''}>Sub</button>` : ''}
                     </div>
                 `;
             }
