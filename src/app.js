@@ -548,6 +548,30 @@ export class TeamSelector {
         document.getElementById('toggle-settings').addEventListener('click', () => this.toggleSettings());
         document.getElementById('toggle-squad').addEventListener('click', () => this.toggleSquad());
         
+        // Match duration input
+        const matchDurationInput = document.getElementById('match-duration');
+        if (matchDurationInput) {
+            // Initialize with saved value
+            matchDurationInput.value = this.settings.matchDuration;
+            
+            // Update preview on input (no toast)
+            matchDurationInput.addEventListener('input', (e) => {
+                const newDuration = parseInt(e.target.value) || 10;
+                this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
+                this.renderIntervalTabs();
+                this.renderStats();
+            });
+            
+            // Save and confirm on blur/enter
+            matchDurationInput.addEventListener('change', (e) => {
+                const newDuration = parseInt(e.target.value) || 10;
+                this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
+                matchDurationInput.value = this.settings.matchDuration;
+                this.saveState();
+                this.showToast(`Match duration: ${this.settings.matchDuration} mins`);
+            });
+        }
+        
         // Export stats button
         this.elements.exportStatsBtn?.addEventListener('click', () => this.exportStats());
         
