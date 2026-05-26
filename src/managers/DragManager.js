@@ -267,6 +267,10 @@ export class DragManager {
      * Handle player tap (click without drag)
      */
     handlePlayerTap(playerId, location, slotIndex) {
+        // Guard against accidental taps after long press (especially on mobile
+        // where DOM re-render during touch can cause events on new elements)
+        if (this.longPressJustTriggered) return;
+        
         if (location === 'pitch') {
             if (this.selectedBenchPlayer) {
                 // Swap with selected bench player
