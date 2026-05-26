@@ -1,7 +1,7 @@
 // Configuration constants
 export const CONFIG = {
     STORAGE_KEY: 'teamSelectorState',
-    LONG_PRESS_MS: 1000,
+    LONG_PRESS_MS: 500,
     DRAG_THRESHOLD: 10,
     SCORING_ANIMATION_MS: 500,
     SLOTS_COUNT: 9,

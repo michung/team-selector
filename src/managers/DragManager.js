@@ -18,6 +18,7 @@ export class DragManager {
         this.justAddedPlayer = false;
         this.justRemovedPlayer = false;
         this.longPressJustTriggered = false;
+        this.longPressTimestamp = 0;
     }
 
     get state() { return this.app.state; }
@@ -96,7 +97,9 @@ export class DragManager {
                 this.app.pinPosition(interval, slotIndex);
                 this.app.showToast('Pinned 📌');
             }
-            this.app.renderPitch();
+            // Delay render to let touch events complete on original element
+            // (prevents PWA issues where re-render during touch causes spurious taps)
+            setTimeout(() => this.app.renderPitch(), 50);
         };
 
         const startLongPress = () => {
@@ -105,6 +108,7 @@ export class DragManager {
                 longPressTimer = setTimeout(() => {
                     longPressTriggered = true;
                     this.longPressJustTriggered = true;
+                    this.longPressTimestamp = Date.now();
                     triggerGoal();
                     longPressTimer = null;
                     // Delay reset so click event still sees flag=true
@@ -117,6 +121,7 @@ export class DragManager {
                 longPressTimer = setTimeout(() => {
                     longPressTriggered = true;
                     this.longPressJustTriggered = true;
+                    this.longPressTimestamp = Date.now();
                     triggerPinToggle();
                     longPressTimer = null;
                     setTimeout(() => { 
@@ -192,6 +197,7 @@ export class DragManager {
                     if (!touchMoved) {
                         longPressTriggered = true;
                         this.longPressJustTriggered = true;
+                        this.longPressTimestamp = Date.now();
                         // Remove pressed state before animation to prevent transform conflict
                         element.classList.remove('pressed');
                         if (this.state.mode === 'live') {
@@ -267,9 +273,11 @@ export class DragManager {
      * Handle player tap (click without drag)
      */
     handlePlayerTap(playerId, location, slotIndex) {
-        // Guard against accidental taps after long press (especially on mobile
+        // Guard against accidental taps after long press (especially on mobile/PWA
         // where DOM re-render during touch can cause events on new elements)
+        // Use both boolean flag AND timestamp for robust protection in PWA mode
         if (this.longPressJustTriggered) return;
+        if (Date.now() - this.longPressTimestamp < 400) return;
         
         if (location === 'pitch') {
             if (this.selectedBenchPlayer) {
