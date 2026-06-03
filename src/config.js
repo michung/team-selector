@@ -11,7 +11,7 @@ export const CONFIG = {
         GOAL_THEM: 100
     },
     INTERVAL_LIMITS: { MIN: 1, MAX: 6 },
-    DEFAULT_MATCH_DURATION: 10
+    DEFAULT_MATCH_DURATION: 60
 };
 
 // String constants to avoid magic strings
