@@ -92,16 +92,22 @@ export class TeamSelector {
         this.updateExportButtonVisibility();
         
         // Listen for hash changes (shared URL pasted in same tab)
-        window.addEventListener('hashchange', () => this.handleHashChange());
+        window.addEventListener('hashchange', () => this.handleURLChange());
+        window.addEventListener('popstate', () => this.handleURLChange());
     }
 
     /**
-     * Handle URL hash change (for shared plans pasted in same tab)
+     * Handle URL change (for shared plans pasted in same tab)
      */
-    handleHashChange() {
+    handleURLChange() {
+        // Check query param first, then hash
+        const urlParams = new URLSearchParams(window.location.search);
+        const planParam = urlParams.get('plan');
         const hash = window.location.hash.slice(1);
-        if (hash) {
-            const sharedPlan = this.decodePlan(hash);
+        const planData = planParam || hash;
+        
+        if (planData) {
+            const sharedPlan = this.decodePlan(planData);
             if (sharedPlan) {
                 this.state.players = sharedPlan.players;
                 this.state.intervalLineups = sharedPlan.intervalLineups;
@@ -112,7 +118,7 @@ export class TeamSelector {
                 if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
                 if (sharedPlan.subsPerInterval !== undefined) this.settings.subsPerInterval = sharedPlan.subsPerInterval;
                 
-                // Clear the hash
+                // Clear URL
                 history.replaceState(null, '', window.location.pathname);
                 
                 // Re-render everything with imported data
@@ -174,18 +180,19 @@ export class TeamSelector {
      * Load state from storage or from shared URL
      */
     loadState() {
-        // Check for shared plan in URL hash
+        // Check for shared plan in URL - try query param first (WhatsApp-friendly), then hash
+        const urlParams = new URLSearchParams(window.location.search);
+        const planParam = urlParams.get('plan');
         const hash = window.location.hash.slice(1);
         
-        // Debug: show hash info on mobile (remove after debugging)
-        if (hash && hash.length > 0) {
-            console.log('[Import] Hash found, length:', hash.length);
-        } else {
-            console.log('[Import] No hash in URL');
-        }
+        // Use query param if present, otherwise try hash
+        const planData = planParam || hash;
         
-        if (hash) {
-            const sharedPlan = this.decodePlan(hash);
+        // Debug logging
+        console.log('[Import] planParam:', planParam ? 'found' : 'none', 'hash:', hash ? 'found' : 'none');
+        
+        if (planData) {
+            const sharedPlan = this.decodePlan(planData);
             if (sharedPlan) {
                 this.state.players = sharedPlan.players;
                 this.state.intervalLineups = sharedPlan.intervalLineups;
@@ -195,7 +202,7 @@ export class TeamSelector {
                 if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
                 if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
                 if (sharedPlan.subsPerInterval !== undefined) this.settings.subsPerInterval = sharedPlan.subsPerInterval;
-                // Clear the hash so refreshing doesn't re-import
+                // Clear URL params/hash so refreshing doesn't re-import
                 history.replaceState(null, '', window.location.pathname);
                 this.showToast('Plan imported!');
                 this.saveState();
@@ -1043,7 +1050,8 @@ export class TeamSelector {
 
     sharePlan() {
         const encoded = this.encodePlan();
-        const url = `${window.location.origin}${window.location.pathname}#${encoded}`;
+        // Use query param instead of hash - more reliable for WhatsApp/messaging apps
+        const url = `${window.location.origin}${window.location.pathname}?plan=${encodeURIComponent(encoded)}`;
         
         navigator.clipboard.writeText(url).then(() => {
             // Show feedback
