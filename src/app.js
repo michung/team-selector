@@ -176,6 +176,14 @@ export class TeamSelector {
     loadState() {
         // Check for shared plan in URL hash
         const hash = window.location.hash.slice(1);
+        
+        // Debug: show hash info on mobile (remove after debugging)
+        if (hash && hash.length > 0) {
+            console.log('[Import] Hash found, length:', hash.length);
+        } else {
+            console.log('[Import] No hash in URL');
+        }
+        
         if (hash) {
             const sharedPlan = this.decodePlan(hash);
             if (sharedPlan) {
@@ -192,6 +200,8 @@ export class TeamSelector {
                 this.showToast('Plan imported!');
                 this.saveState();
                 return;
+            } else {
+                console.log('[Import] decodePlan returned null - invalid format?');
             }
         }
 
@@ -1100,8 +1110,11 @@ export class TeamSelector {
 
     decodePlan(hash) {
         try {
+            // Handle URL-encoded pipes (some apps encode | as %7C)
+            const normalizedHash = hash.replace(/%7C/gi, '|');
+            
             const params = {};
-            hash.split('|').forEach(part => {
+            normalizedHash.split('|').forEach(part => {
                 const [key, value] = part.split('=');
                 params[key] = value;
             });
