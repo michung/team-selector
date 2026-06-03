@@ -66,7 +66,8 @@ export const DEFAULT_SETTINGS = {
     playersOnPitch: CONFIG.SLOTS_COUNT,
     subsPerInterval: -1,  // -1 means auto (will be set to squad size)
     opponentName: '',
-    matchDate: ''
+    matchDate: '',
+    isHome: true
 };
 
 // Slot fill order: top to bottom, left to right (FW, LW, LCM, RCM, RW, LB, CB, RB, GK)

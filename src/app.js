@@ -146,6 +146,7 @@ export class TeamSelector {
                 this.settings.intervalCount = sharedPlan.intervalCount;
                 if (sharedPlan.opponentName) this.settings.opponentName = sharedPlan.opponentName;
                 if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
+                if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
                 // Clear the hash so refreshing doesn't re-import
                 history.replaceState(null, '', window.location.pathname);
                 this.showToast('Plan imported!');
@@ -269,15 +270,14 @@ export class TeamSelector {
         const lines = [];
         
         // Match info header
-        if (this.settings.opponentName || this.settings.matchDate) {
-            if (this.settings.opponentName) {
-                lines.push(`Opponent,${this.settings.opponentName}`);
-            }
-            if (this.settings.matchDate) {
-                lines.push(`Date,${this.settings.matchDate}`);
-            }
-            lines.push('');
+        if (this.settings.opponentName) {
+            lines.push(`Opponent,${this.settings.opponentName}`);
         }
+        lines.push(`Venue,${this.settings.isHome ? 'Home' : 'Away'}`);
+        if (this.settings.matchDate) {
+            lines.push(`Date,${this.settings.matchDate}`);
+        }
+        lines.push('');
         
         // Starting lineup
         const starters = this.state.players
@@ -372,7 +372,8 @@ export class TeamSelector {
         const titleEl = document.getElementById('app-title');
         if (titleEl) {
             if (this.settings.opponentName) {
-                titleEl.textContent = `⚽ vs ${this.settings.opponentName}`;
+                const venue = this.settings.isHome ? '(H)' : '(A)';
+                titleEl.textContent = `⚽ vs ${this.settings.opponentName} ${venue}`;
             } else {
                 titleEl.textContent = '⚽ Team Selector';
             }
@@ -657,6 +658,23 @@ export class TeamSelector {
                 this.settings.opponentName = e.target.value.trim();
                 this.updateTitle();
                 this.saveState();
+            });
+        }
+        
+        // Venue toggle (home/away)
+        const venueToggle = document.getElementById('venue-toggle');
+        if (venueToggle) {
+            // Set initial state
+            const venueButtons = venueToggle.querySelectorAll('.venue-btn');
+            venueButtons.forEach(btn => {
+                const isHome = btn.dataset.venue === 'home';
+                btn.classList.toggle('active', isHome === this.settings.isHome);
+                btn.addEventListener('click', () => {
+                    this.settings.isHome = btn.dataset.venue === 'home';
+                    venueButtons.forEach(b => b.classList.toggle('active', b === btn));
+                    this.updateTitle();
+                    this.saveState();
+                });
             });
         }
         
@@ -998,6 +1016,8 @@ export class TeamSelector {
         if (this.settings.matchDate) {
             parts.push(`t=${this.settings.matchDate}`);
         }
+        // Add venue (h=1 for home, h=0 for away)
+        parts.push(`h=${this.settings.isHome ? 1 : 0}`);
         
         return parts.join('|');
     }
@@ -1026,6 +1046,7 @@ export class TeamSelector {
             const intervalCount = parseInt(params.i) || 4;
             const opponentName = params.o ? decodeURIComponent(params.o) : '';
             const matchDate = params.t || '';
+            const isHome = params.h !== '0';  // Default to home if not specified
             
             const intervalLineups = {};
             const lineupStrs = params.l.split(';');
@@ -1038,7 +1059,7 @@ export class TeamSelector {
                 });
             });
             
-            return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate };
+            return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome };
         } catch (e) {
             console.error('Failed to decode plan:', e);
             return null;
