@@ -1568,8 +1568,7 @@ export class TeamSelector {
     }
 
     clearAllLineups() {
-        if (!confirm('Clear all lineups?')) return;
-        
+        // Skip confirm on mobile (iOS Safari can block it) - users can use Auto to regenerate
         const pitchSize = CONFIG.SLOTS_COUNT;
         const intervalCount = this.settings.intervalCount;
         
@@ -1737,8 +1736,7 @@ export class TeamSelector {
     }
 
     resetSquad() {
-        if (!confirm('Reset squad to default players? This will also clear all lineups.')) return;
-        
+        // Skip confirm on mobile (iOS Safari can block it)
         // Reset players to default
         this.loadSamplePlayers();
         
