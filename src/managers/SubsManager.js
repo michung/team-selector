@@ -140,7 +140,7 @@ export class SubsManager {
         this.app.saveState();
         this.app.renderPitch();
         this.app.renderBench();
-        this.app.renderStats();
+        // Stats updated by timer on minute boundary in live mode
         this.updateBadge();
         
         // Show toast
@@ -193,7 +193,7 @@ export class SubsManager {
         this.app.saveState();
         this.app.renderPitch();
         this.app.renderBench();
-        this.app.renderStats();
+        // Stats updated by timer on minute boundary in live mode
         this.updateBadge();
         
         // Update button to show it's done
@@ -337,9 +337,11 @@ export class SubsManager {
             overlay.remove();
         });
         
-        // Close on popup click (but not on buttons or navigation dots)
+        // Close on popup click (but not on buttons, navigation dots, or slider during swipe)
         popup.addEventListener('click', (e) => {
-            if (!e.target.closest('.sub-trigger-btn') && !e.target.closest('.subs-dot')) {
+            if (!e.target.closest('.sub-trigger-btn') && 
+                !e.target.closest('.subs-dot') &&
+                !e.target.closest('.subs-slider')) {
                 popup.remove();
                 overlay.remove();
             }
@@ -436,7 +438,9 @@ export class SubsManager {
     setupSliderNavigation(popup, defaultIndex) {
         let currentSlide = defaultIndex;
         let startX = 0;
+        let startY = 0;
         let isDragging = false;
+        let isHorizontalSwipe = null;
         
         const slider = popup.querySelector('.subs-slider');
         const slides = popup.querySelectorAll('.subs-slide');
@@ -452,19 +456,44 @@ export class SubsManager {
         // Touch events
         slider.addEventListener('touchstart', (e) => {
             startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
             isDragging = true;
-        });
+            isHorizontalSwipe = null;
+        }, { passive: true });
+        
+        slider.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            
+            const dx = Math.abs(e.touches[0].clientX - startX);
+            const dy = Math.abs(e.touches[0].clientY - startY);
+            
+            // Determine swipe direction on first significant movement
+            if (isHorizontalSwipe === null && (dx > 10 || dy > 10)) {
+                isHorizontalSwipe = dx > dy;
+            }
+            
+            // Prevent vertical scrolling when swiping horizontally
+            if (isHorizontalSwipe) {
+                e.preventDefault();
+            }
+        }, { passive: false });
         
         slider.addEventListener('touchend', (e) => {
             if (!isDragging) return;
             isDragging = false;
+            
             const endX = e.changedTouches[0].clientX;
             const diff = startX - endX;
             
-            if (Math.abs(diff) > 50) {
+            // Only process horizontal swipes with 30px threshold
+            if (isHorizontalSwipe && Math.abs(diff) > 30) {
+                e.preventDefault();
+                e.stopPropagation();
                 if (diff > 0) goToSlide(currentSlide + 1);
                 else goToSlide(currentSlide - 1);
             }
+            
+            isHorizontalSwipe = null;
         });
         
         // Mouse events for desktop
@@ -478,7 +507,7 @@ export class SubsManager {
             isDragging = false;
             const diff = startX - e.clientX;
             
-            if (Math.abs(diff) > 50) {
+            if (Math.abs(diff) > 30) {
                 if (diff > 0) goToSlide(currentSlide + 1);
                 else goToSlide(currentSlide - 1);
             }
@@ -486,7 +515,8 @@ export class SubsManager {
         
         // Dot clicks
         dots.forEach(dot => {
-            dot.addEventListener('click', () => {
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
                 goToSlide(parseInt(dot.dataset.index));
             });
         });

@@ -14,7 +14,7 @@
 <body>
     <div id="app">
         <header>
-            <h1>⚽ Team Selector</h1>
+            <h1 id="app-title">⚽ Team Selector</h1>
             <div class="header-controls">
                 <div class="mode-tabs">
                     <button id="plan-mode-btn" class="tab-btn active">📋 Plan</button>
@@ -170,6 +170,14 @@
             </div>
             <div class="settings-content" id="settings-content" style="display: none;">
                 <div class="setting-row">
+                    <label for="opponent-name">Opponent</label>
+                    <input type="text" id="opponent-name" placeholder="e.g. FC United">
+                </div>
+                <div class="setting-row">
+                    <label for="match-date">Match Date</label>
+                    <input type="date" id="match-date">
+                </div>
+                <div class="setting-row">
                     <label for="match-duration">Match Duration (mins)</label>
                     <input type="number" id="match-duration" value="10" min="10" max="120">
                 </div>
@@ -178,6 +186,7 @@
                 <div class="roster-controls">
                     <input type="text" id="new-player-name" placeholder="Player name">
                     <button id="add-player-btn" class="btn btn-small btn-primary">+ Add</button>
+                    <button id="reset-squad-btn" class="btn btn-small btn-danger">Reset</button>
                 </div>
                 <div class="roster-list" id="roster-list">
                     <!-- Roster will be generated here -->

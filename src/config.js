@@ -64,7 +64,9 @@ export const DEFAULT_SETTINGS = {
     matchDuration: CONFIG.DEFAULT_MATCH_DURATION,
     intervalCount: 4,
     playersOnPitch: CONFIG.SLOTS_COUNT,
-    subsPerInterval: -1  // -1 means auto (will be set to squad size)
+    subsPerInterval: -1,  // -1 means auto (will be set to squad size)
+    opponentName: '',
+    matchDate: ''
 };
 
 // Slot fill order: top to bottom, left to right (FW, LW, LCM, RCM, RW, LB, CB, RB, GK)

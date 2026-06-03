@@ -82,6 +82,9 @@ export class TeamSelector {
         // Set initial mode to show appropriate hints and UI
         this.setMode(this.state.mode);
         
+        // Update title with opponent name if set
+        this.updateTitle();
+        
         // Restore stop button text based on match state
         this.timer.updateStopButtonText();
         
@@ -123,7 +126,8 @@ export class TeamSelector {
             hintPin: document.getElementById('hint-pin'),
             intervalCount: document.getElementById('interval-count'),
             subsCount: document.getElementById('subs-count'),
-            exportStatsBtn: document.getElementById('export-stats-btn')
+            exportStatsBtn: document.getElementById('export-stats-btn'),
+            resetMatchBtn: document.getElementById('reset-match')
         };
     }
 
@@ -140,6 +144,8 @@ export class TeamSelector {
                 this.state.intervalLineups = sharedPlan.intervalLineups;
                 this.settings.matchDuration = sharedPlan.matchDuration;
                 this.settings.intervalCount = sharedPlan.intervalCount;
+                if (sharedPlan.opponentName) this.settings.opponentName = sharedPlan.opponentName;
+                if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
                 // Clear the hash so refreshing doesn't re-import
                 history.replaceState(null, '', window.location.pathname);
                 this.showToast('Plan imported!');
@@ -262,6 +268,17 @@ export class TeamSelector {
     exportStats() {
         const lines = [];
         
+        // Match info header
+        if (this.settings.opponentName || this.settings.matchDate) {
+            if (this.settings.opponentName) {
+                lines.push(`Opponent,${this.settings.opponentName}`);
+            }
+            if (this.settings.matchDate) {
+                lines.push(`Date,${this.settings.matchDate}`);
+            }
+            lines.push('');
+        }
+        
         // Starting lineup
         const starters = this.state.players
             .filter(p => p.startedGame)
@@ -283,7 +300,7 @@ export class TeamSelector {
             const row = [
                 player.name,
                 player.startedGame ? 'Yes' : 'No',
-                player.minutesPlayed || 0,
+                Math.floor(player.minutesPlayed || 0),
                 player.goals || 0,
                 player.assists || 0
             ];
@@ -293,6 +310,33 @@ export class TeamSelector {
         // Final score
         lines.push('');
         lines.push(`Final Score,${this.state.scoreUs} - ${this.state.scoreThem}`);
+        
+        // Match events
+        if (this.state.matchEvents && this.state.matchEvents.length > 0) {
+            lines.push('');
+            lines.push('Match Events');
+            
+            for (const event of this.state.matchEvents) {
+                const minutes = Math.floor(event.time / 60);
+                const timeStr = `${minutes}'`;
+                
+                if (event.type === 'kickoff') {
+                    lines.push(`${timeStr},Kick Off`);
+                } else if (event.type === 'secondhalfkickoff') {
+                    lines.push(`${timeStr},2nd Half Kick Off`);
+                } else if (event.type === 'halftime') {
+                    lines.push(`${timeStr},Half Time (${event.score})`);
+                } else if (event.type === 'fulltime') {
+                    lines.push(`${timeStr},Full Time (${event.score})`);
+                } else if (event.type === 'goal') {
+                    const assistText = event.assist ? ` (assist: ${event.assist})` : '';
+                    const teamIcon = event.team === 'us' ? 'GOAL' : 'OPP GOAL';
+                    lines.push(`${timeStr},${teamIcon} - ${event.scorer}${assistText} [${event.score}]`);
+                } else if (event.type === 'sub') {
+                    lines.push(`${timeStr},SUB: ${event.playerIn} on for ${event.playerOut}`);
+                }
+            }
+        }
         
         // Plan URL
         lines.push('');
@@ -318,6 +362,20 @@ export class TeamSelector {
     updateExportButtonVisibility() {
         if (this.elements.exportStatsBtn) {
             this.elements.exportStatsBtn.style.display = this.state.matchEnded ? 'inline-block' : 'none';
+        }
+    }
+
+    /**
+     * Update app title with opponent name if set
+     */
+    updateTitle() {
+        const titleEl = document.getElementById('app-title');
+        if (titleEl) {
+            if (this.settings.opponentName) {
+                titleEl.textContent = `⚽ vs ${this.settings.opponentName}`;
+            } else {
+                titleEl.textContent = '⚽ Team Selector';
+            }
         }
     }
 
@@ -393,6 +451,9 @@ export class TeamSelector {
     // ==================== PLAYER MINUTES ====================
 
     updatePlayerMinutes() {
+        // Only update minutes display in live mode (plan mode always shows planned minutes)
+        if (this.state.mode !== MODES.LIVE) return;
+        
         // Update only the minutes text elements, not full re-render
         const currentElapsed = this.getElapsedSeconds();
         
@@ -548,6 +609,22 @@ export class TeamSelector {
         document.getElementById('toggle-settings').addEventListener('click', () => this.toggleSettings());
         document.getElementById('toggle-squad').addEventListener('click', () => this.toggleSquad());
         
+        // Reset squad button
+        document.getElementById('reset-squad-btn')?.addEventListener('click', () => this.resetSquad());
+        
+        // Add player button and Enter key
+        const addPlayerBtn = document.getElementById('add-player-btn');
+        const newPlayerInput = document.getElementById('new-player-name');
+        if (addPlayerBtn && newPlayerInput) {
+            addPlayerBtn.addEventListener('click', () => this.addPlayer());
+            newPlayerInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.addPlayer();
+                }
+            });
+        }
+        
         // Match duration input
         const matchDurationInput = document.getElementById('match-duration');
         if (matchDurationInput) {
@@ -569,6 +646,32 @@ export class TeamSelector {
                 matchDurationInput.value = this.settings.matchDuration;
                 this.saveState();
                 this.showToast(`Match duration: ${this.settings.matchDuration} mins`);
+            });
+        }
+        
+        // Opponent name input
+        const opponentNameInput = document.getElementById('opponent-name');
+        if (opponentNameInput) {
+            opponentNameInput.value = this.settings.opponentName || '';
+            opponentNameInput.addEventListener('change', (e) => {
+                this.settings.opponentName = e.target.value.trim();
+                this.updateTitle();
+                this.saveState();
+            });
+        }
+        
+        // Match date input
+        const matchDateInput = document.getElementById('match-date');
+        if (matchDateInput) {
+            // Default to today if not set
+            if (!this.settings.matchDate) {
+                const today = new Date().toISOString().split('T')[0];
+                this.settings.matchDate = today;
+            }
+            matchDateInput.value = this.settings.matchDate;
+            matchDateInput.addEventListener('change', (e) => {
+                this.settings.matchDate = e.target.value;
+                this.saveState();
             });
         }
         
@@ -631,12 +734,33 @@ export class TeamSelector {
     setupSwipeGestures() {
         let startX = 0;
         let startY = 0;
-        const swipeThreshold = 50;
+        let isHorizontalSwipe = null;
+        const swipeThreshold = 30;
         
         this.elements.pitch.addEventListener('touchstart', (e) => {
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
+            isHorizontalSwipe = null;
         }, { passive: true });
+        
+        this.elements.pitch.addEventListener('touchmove', (e) => {
+            if (this.state.mode !== MODES.PLAN) return;
+            // Don't interfere with player drags
+            if (this.drag.dragState.draggingPlayer || this.drag.wasDragging) return;
+            
+            const dx = Math.abs(e.touches[0].clientX - startX);
+            const dy = Math.abs(e.touches[0].clientY - startY);
+            
+            // Determine swipe direction on first significant movement
+            if (isHorizontalSwipe === null && (dx > 10 || dy > 10)) {
+                isHorizontalSwipe = dx > dy;
+            }
+            
+            // Prevent vertical scrolling when swiping horizontally
+            if (isHorizontalSwipe) {
+                e.preventDefault();
+            }
+        }, { passive: false });
         
         this.elements.pitch.addEventListener('touchend', (e) => {
             if (this.state.mode !== MODES.PLAN) return;
@@ -644,12 +768,10 @@ export class TeamSelector {
             if (this.drag.dragState.draggingPlayer || this.drag.wasDragging) return;
             
             const endX = e.changedTouches[0].clientX;
-            const endY = e.changedTouches[0].clientY;
             const dx = endX - startX;
-            const dy = endY - startY;
             
-            // Only trigger swipe if horizontal movement is greater than vertical
-            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > swipeThreshold) {
+            // Only trigger horizontal swipes
+            if (isHorizontalSwipe && Math.abs(dx) > swipeThreshold) {
                 // Hide swipe hints once user has learned the gesture
                 this.elements.swipeHintLeft?.classList.add('hidden');
                 this.elements.swipeHintRight?.classList.add('hidden');
@@ -664,7 +786,9 @@ export class TeamSelector {
                     this.showToast(`Interval ${this.state.selectedPlanInterval}`);
                 }
             }
-        }, { passive: true });
+            
+            isHorizontalSwipe = null;
+        });
     }
 
     // Setup swipe to switch between Plan and Live modes
@@ -728,6 +852,7 @@ export class TeamSelector {
         this.elements.liveControls.style.display = mode === MODES.LIVE ? 'block' : 'none';
         this.elements.timerButtons.style.display = mode === MODES.LIVE ? 'flex' : 'none';
         this.elements.sharePlanBtn.style.display = mode === MODES.PLAN ? 'inline-block' : 'none';
+        this.elements.resetMatchBtn.style.display = mode === MODES.LIVE ? 'inline-block' : 'none';
         
         // Toggle stats vs events section
         this.elements.statsSection.style.display = mode === MODES.PLAN ? 'block' : 'none';
@@ -866,6 +991,14 @@ export class TeamSelector {
             `i=${this.settings.intervalCount}`
         ];
         
+        // Add optional opponent name and match date
+        if (this.settings.opponentName) {
+            parts.push(`o=${encodeURIComponent(this.settings.opponentName)}`);
+        }
+        if (this.settings.matchDate) {
+            parts.push(`t=${this.settings.matchDate}`);
+        }
+        
         return parts.join('|');
     }
 
@@ -891,6 +1024,8 @@ export class TeamSelector {
             
             const matchDuration = parseInt(params.d) || 60;
             const intervalCount = parseInt(params.i) || 4;
+            const opponentName = params.o ? decodeURIComponent(params.o) : '';
+            const matchDate = params.t || '';
             
             const intervalLineups = {};
             const lineupStrs = params.l.split(';');
@@ -903,7 +1038,7 @@ export class TeamSelector {
                 });
             });
             
-            return { players, matchDuration, intervalCount, intervalLineups };
+            return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate };
         } catch (e) {
             console.error('Failed to decode plan:', e);
             return null;
@@ -998,7 +1133,23 @@ export class TeamSelector {
     }
 
     copyLineup(fromInterval, toInterval) {
+        // Copy the lineup
         this.state.intervalLineups[toInterval] = [...this.state.intervalLineups[fromInterval]];
+        
+        // Copy pinned positions
+        if (this.state.pinnedPositions) {
+            // Clear existing pins for target interval
+            for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
+                delete this.state.pinnedPositions[`${toInterval}-${slot}`];
+            }
+            // Copy pins from source interval
+            for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
+                if (this.state.pinnedPositions[`${fromInterval}-${slot}`]) {
+                    this.state.pinnedPositions[`${toInterval}-${slot}`] = true;
+                }
+            }
+        }
+        
         this.showToast(`Copied ${fromInterval} → ${toInterval}`);
         this.renderIntervalTabs();
         this.renderPitch();
@@ -1305,10 +1456,43 @@ export class TeamSelector {
         this.renderPitch();
         this.renderBench();
         this.renderStats();
+        this.renderRoster();
         this.events.renderMatchEvents();
     }
 
     // ==================== PLAYER MANAGEMENT ====================
+
+    addPlayer() {
+        const input = document.getElementById('new-player-name');
+        const name = input.value.trim();
+        
+        if (!name) {
+            this.showToast('Enter a player name');
+            return;
+        }
+        
+        const maxId = this.state.players.reduce((max, p) => Math.max(max, p.id), 0);
+        const maxNumber = this.state.players.reduce((max, p) => Math.max(max, p.number || 0), 0);
+        
+        const newPlayer = {
+            id: maxId + 1,
+            name: name,
+            number: maxNumber + 1,
+            preferredPositions: [],
+            minutesPlayed: 0,
+            goals: 0,
+            assists: 0
+        };
+        
+        this.state.players.push(newPlayer);
+        input.value = '';
+        
+        this.renderRoster();
+        this.renderBench();
+        this.renderStats();
+        this.saveState();
+        this.showToast(`Added ${name}`);
+    }
 
     togglePlayerPosition(playerId, slotIndex) {
         const player = this.getPlayerById(playerId);
@@ -1328,24 +1512,33 @@ export class TeamSelector {
     }
 
     deletePlayer(playerId) {
-        if (!confirm('Remove this player from the squad?')) return;
+        const player = this.getPlayerById(playerId);
+        if (!player) return;
         
-        // Remove from all lineups
+        const playerCopy = { ...player };
+        const lineupPositions = [];
+        
+        // Track and remove from lineups
         for (let i = 1; i <= this.settings.intervalCount; i++) {
             const lineup = this.state.intervalLineups[i];
             if (lineup) {
                 const idx = lineup.indexOf(playerId);
-                if (idx !== -1) lineup[idx] = null;
+                if (idx !== -1) {
+                    lineupPositions.push({ interval: i, slot: idx });
+                    lineup[idx] = null;
+                }
             }
         }
         
-        // Remove from live lineup
+        let liveSlot = -1;
         if (this.state.liveLineup) {
             const idx = this.state.liveLineup.indexOf(playerId);
-            if (idx !== -1) this.state.liveLineup[idx] = null;
+            if (idx !== -1) {
+                liveSlot = idx;
+                this.state.liveLineup[idx] = null;
+            }
         }
         
-        // Remove from players array
         this.state.players = this.state.players.filter(p => p.id !== playerId);
         
         this.renderRoster();
@@ -1353,6 +1546,25 @@ export class TeamSelector {
         this.renderBench();
         this.renderStats();
         this.saveState();
+        
+        // Toast with undo
+        this.showToast(`Removed ${playerCopy.name}`, 'default', 5000, () => {
+            this.state.players.push(playerCopy);
+            for (const pos of lineupPositions) {
+                if (this.state.intervalLineups[pos.interval]) {
+                    this.state.intervalLineups[pos.interval][pos.slot] = playerId;
+                }
+            }
+            if (liveSlot !== -1 && this.state.liveLineup) {
+                this.state.liveLineup[liveSlot] = playerId;
+            }
+            this.renderRoster();
+            this.renderPitch();
+            this.renderBench();
+            this.renderStats();
+            this.saveState();
+            this.showToast(`Restored ${playerCopy.name}`);
+        });
     }
 
     // ==================== VISUAL EFFECTS ====================
@@ -1379,6 +1591,28 @@ export class TeamSelector {
             { id: 12, name: 'Leo', number: 12, preferredPositions: [8, 4, 7], minutesPlayed: 0, goals: 0, assists: 0 },
             { id: 13, name: 'Sophie', number: 13, preferredPositions: [5, 6, 7, 8], minutesPlayed: 0, goals: 0, assists: 0 }
         ];
+    }
+
+    resetSquad() {
+        if (!confirm('Reset squad to default players? This will also clear all lineups.')) return;
+        
+        // Reset players to default
+        this.loadSamplePlayers();
+        
+        // Clear all lineups
+        const pitchSize = CONFIG.SLOTS_COUNT;
+        this.state.intervalLineups = {};
+        for (let i = 1; i <= this.settings.intervalCount; i++) {
+            this.state.intervalLineups[i] = Array(pitchSize).fill(null);
+        }
+        this.state.liveLineup = Array(pitchSize).fill(null);
+        
+        // Clear pinned positions
+        this.state.pinnedPositions = {};
+        
+        this.showToast('Squad reset');
+        this.renderAll();
+        this.saveState();
     }
 }
 

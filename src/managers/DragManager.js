@@ -25,6 +25,15 @@ export class DragManager {
     get settings() { return this.app.settings; }
 
     /**
+     * Render stats only in plan mode (live mode uses timer-based updates)
+     */
+    renderStatsIfPlanMode() {
+        if (this.state.mode === MODES.PLAN) {
+            this.app.renderStats();
+        }
+    }
+
+    /**
      * Setup drop zones on pitch slots and bench
      */
     setupDropZones() {
@@ -99,7 +108,7 @@ export class DragManager {
             }
             // Delay render to let touch events complete on original element
             // (prevents PWA issues where re-render during touch causes spurious taps)
-            setTimeout(() => this.app.renderPitch(), 50);
+            setTimeout(() => this.app.renderPitch(), 200);
         };
 
         const startLongPress = () => {
@@ -115,7 +124,7 @@ export class DragManager {
                     setTimeout(() => { 
                         longPressTriggered = false;
                         this.longPressJustTriggered = false;
-                    }, 500);
+                    }, 3000);
                 }, CONFIG.LONG_PRESS_MS);
             } else if (this.state.mode === 'plan') {
                 longPressTimer = setTimeout(() => {
@@ -127,7 +136,7 @@ export class DragManager {
                     setTimeout(() => { 
                         longPressTriggered = false;
                         this.longPressJustTriggered = false;
-                    }, 500);
+                    }, 3000);
                 }, CONFIG.LONG_PRESS_MS);
             }
         };
@@ -176,11 +185,13 @@ export class DragManager {
         });
 
         // Touch events
+        let touchStartTime = 0;
         element.addEventListener('touchstart', (e) => {
             e.stopPropagation();
             touchMoved = false;
             longPressTriggered = false;
             this.longPressJustTriggered = false;
+            touchStartTime = Date.now();
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             
@@ -236,16 +247,23 @@ export class DragManager {
             element.classList.remove('dragging');
             element.classList.remove('pressed');
             
+            // Check elapsed time - if held long enough, treat as long press even if
+            // timer callback hasn't fired yet (race condition at threshold boundary)
+            const elapsed = Date.now() - touchStartTime;
+            const wasLongPress = elapsed >= CONFIG.LONG_PRESS_MS - 50; // 50ms grace period
+            
             // Check both local flag AND class-level flag (for re-render case)
-            if (longPressTriggered || this.longPressJustTriggered) {
+            // Also check elapsed time to handle race condition
+            if (longPressTriggered || this.longPressJustTriggered || (wasLongPress && location === 'pitch')) {
                 e.preventDefault();
                 e.stopPropagation();
                 // Use class property to reliably block click events
                 this.longPressJustTriggered = true;
+                this.longPressTimestamp = Date.now();
                 setTimeout(() => { 
                     longPressTriggered = false; 
                     this.longPressJustTriggered = false;
-                }, 500);
+                }, 3000);
                 this.endDrag();
                 return;
             }
@@ -265,7 +283,11 @@ export class DragManager {
             cancelLongPress();
             element.classList.remove('dragging');
             element.classList.remove('pressed');
-            this.endDrag();
+            // Keep long press flag set if it was triggered (PWA may fire touchcancel
+            // when element is removed, then synthesize click on new element)
+            if (!longPressTriggered && !this.longPressJustTriggered) {
+                this.endDrag();
+            }
         });
     }
 
@@ -301,7 +323,7 @@ export class DragManager {
                 this.clearBenchSelection();
                 this.app.renderPitch();
                 this.app.renderBench();
-                this.app.renderStats();
+                this.renderStatsIfPlanMode();
             } else if (this.state.mode === 'live') {
                 this.app.showToast('Select a sub first', 'default', 1500);
             } else {
@@ -421,7 +443,7 @@ export class DragManager {
         this.app.setCurrentLineup(lineup);
         this.app.renderPitch();
         this.app.renderBench();
-        this.app.renderStats();
+        this.renderStatsIfPlanMode();
         
         if (this.state.mode === MODES.LIVE) {
             this.app.updateSubsIconBadge();
@@ -456,7 +478,7 @@ export class DragManager {
         
         this.app.renderPitch();
         this.app.renderBench();
-        this.app.renderStats();
+        this.renderStatsIfPlanMode();
         
         if (this.state.mode === MODES.LIVE) {
             this.app.updateSubsIconBadge();
@@ -492,7 +514,7 @@ export class DragManager {
                 
                 this.app.renderPitch();
                 this.app.renderBench();
-                this.app.renderStats();
+                this.renderStatsIfPlanMode();
                 setTimeout(() => { this.justAddedPlayer = false; }, 100);
                 return;
             }
@@ -504,6 +526,9 @@ export class DragManager {
      * Remove player from pitch slot
      */
     removePlayerFromPitch(slotIndex) {
+        // Final guard against accidental removal after long press (PWA edge case)
+        if (this.longPressJustTriggered || Date.now() - this.longPressTimestamp < 400) return;
+        
         this.justRemovedPlayer = true;
         const lineup = [...this.app.getCurrentLineup()];
         const removedPlayerId = lineup[slotIndex];
@@ -531,7 +556,7 @@ export class DragManager {
         this.app.setCurrentLineup(lineup);
         this.app.renderPitch();
         this.app.renderBench();
-        this.app.renderStats();
+        this.renderStatsIfPlanMode();
         
         setTimeout(() => { this.justRemovedPlayer = false; }, 100);
     }
@@ -559,7 +584,7 @@ export class DragManager {
         this.app.setCurrentLineup(newLineup);
         this.app.renderPitch();
         this.app.renderBench();
-        this.app.renderStats();
+        this.renderStatsIfPlanMode();
     }
 
     /**

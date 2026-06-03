@@ -6,6 +6,7 @@ export class TimerManager {
         this.app = app;
         this.timerInterval = null;
         this._lastDisplayedSecond = -1;
+        this._lastStatsMinute = -1;
     }
 
     get state() { return this.app.state; }
@@ -47,10 +48,17 @@ export class TimerManager {
     startTimerInterval() {
         this.timerInterval = setInterval(() => {
             const elapsed = this.getElapsedSeconds();
+            const currentMinute = Math.floor(elapsed / 60);
             
             this.updateDisplay();
             this.app.updatePlayerMinutes();
             this.app.checkIntervalChange();
+            
+            // Only re-render stats table on minute boundary (live mode optimization)
+            if (currentMinute !== this._lastStatsMinute) {
+                this._lastStatsMinute = currentMinute;
+                this.app.renderStats();
+            }
             
             // Save state periodically
             if (elapsed % 10 === 0) {
@@ -294,6 +302,7 @@ export class TimerManager {
         this.state.halfTimeTaken = false;
         this.state.secondHalfStarted = false;
         this._lastDisplayedSecond = -1;
+        this._lastStatsMinute = -1;
         
         this.elements.playPauseBtn.disabled = false;
         this.elements.playPauseBtn.textContent = '▶';

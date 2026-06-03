@@ -199,7 +199,9 @@ export class RenderManager {
         card.dataset.playerId = player.id;
         card.draggable = true;
         
-        const minutes = Math.floor(this.app.getPlayerCurrentMinutes(player.id));
+        // Use getDisplayMinutes for live mode to properly cap at half duration (no added time counting)
+        const currentElapsed = this.app.getElapsedSeconds();
+        const minutes = this.app.getDisplayMinutes(player, currentElapsed);
         const plannedMinutes = this.getPlannedMinutes(player.id);
         
         const displayMinutes = this.state.mode === 'plan' ? plannedMinutes : minutes;
