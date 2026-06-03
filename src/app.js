@@ -137,10 +137,8 @@ export class TeamSelector {
     loadState() {
         // Check for shared plan in URL hash
         const hash = window.location.hash.slice(1);
-        console.log('loadState - hash:', hash ? hash.substring(0, 100) + '...' : '(empty)');
         if (hash) {
             const sharedPlan = this.decodePlan(hash);
-            console.log('loadState - decodePlan result:', sharedPlan);
             if (sharedPlan) {
                 this.state.players = sharedPlan.players;
                 this.state.intervalLineups = sharedPlan.intervalLineups;
@@ -417,7 +415,6 @@ export class TeamSelector {
     // ==================== INTERVAL MANAGEMENT ====================
 
     initializeIntervalLineups() {
-        console.log('initializeIntervalLineups - before:', JSON.stringify(this.state.intervalLineups));
         for (let i = 1; i <= this.settings.intervalCount; i++) {
             const lineup = this.state.intervalLineups[i];
             // Only initialize if lineup doesn't exist or is invalid
@@ -425,8 +422,6 @@ export class TeamSelector {
             const needsInit = !lineup || 
                               !Array.isArray(lineup) || 
                               lineup.length !== CONFIG.SLOTS_COUNT;
-            
-            console.log(`initializeIntervalLineups - interval ${i}: needsInit=${needsInit}, lineup length=${lineup?.length}, SLOTS=${CONFIG.SLOTS_COUNT}`);
             
             if (needsInit) {
                 if (i === 1) {
@@ -436,7 +431,6 @@ export class TeamSelector {
                 }
             }
         }
-        console.log('initializeIntervalLineups - after:', JSON.stringify(this.state.intervalLineups));
         this.saveState();
     }
 
@@ -1073,12 +1067,7 @@ export class TeamSelector {
                 params[key] = value;
             });
             
-            console.log('decodePlan - params:', params);
-            
-            if (!params.p || !params.l) {
-                console.log('decodePlan - missing p or l params');
-                return null;
-            }
+            if (!params.p || !params.l) return null;
             
             const names = params.p.split(',').map(n => decodeURIComponent(n));
             const numbers = params.n ? params.n.split(',').map(n => parseInt(n)) : names.map((_, i) => i + 1);
@@ -1090,8 +1079,6 @@ export class TeamSelector {
                 minutesPlayed: 0
             }));
             
-            console.log('decodePlan - players:', players);
-            
             const matchDuration = parseInt(params.d) || 60;
             const intervalCount = parseInt(params.i) || 4;
             const opponentName = params.o ? decodeURIComponent(params.o) : '';
@@ -1101,7 +1088,6 @@ export class TeamSelector {
             
             const intervalLineups = {};
             const lineupStrs = params.l.split(';');
-            console.log('decodePlan - lineupStrs:', lineupStrs);
             lineupStrs.forEach((lineupStr, intervalIdx) => {
                 const indices = lineupStr ? lineupStr.split(',') : [];
                 // Ensure we always create exactly SLOTS_COUNT slots
@@ -1117,8 +1103,6 @@ export class TeamSelector {
                 }
                 intervalLineups[intervalIdx + 1] = lineup;
             });
-            
-            console.log('decodePlan - intervalLineups:', intervalLineups);
             
             return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome, subsPerInterval };
         } catch (e) {
