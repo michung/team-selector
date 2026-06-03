@@ -1121,7 +1121,15 @@ export class TeamSelector {
             
             if (!params.p || !params.l) return null;
             
-            const names = params.p.split(',').map(n => decodeURIComponent(n));
+            // Decode names - handle potential double-encoding from some apps
+            const names = params.p.split(',').map(n => {
+                let decoded = decodeURIComponent(n);
+                // If still contains %XX patterns, decode again (double-encoded)
+                if (decoded.includes('%')) {
+                    try { decoded = decodeURIComponent(decoded); } catch(e) {}
+                }
+                return decoded;
+            });
             const numbers = params.n ? params.n.split(',').map(n => parseInt(n)) : names.map((_, i) => i + 1);
             
             const players = names.map((name, idx) => ({
@@ -1133,7 +1141,11 @@ export class TeamSelector {
             
             const matchDuration = parseInt(params.d) || 60;
             const intervalCount = parseInt(params.i) || 4;
-            const opponentName = params.o ? decodeURIComponent(params.o) : '';
+            let opponentName = params.o ? decodeURIComponent(params.o) : '';
+            // Handle potential double-encoding
+            if (opponentName.includes('%')) {
+                try { opponentName = decodeURIComponent(opponentName); } catch(e) {}
+            }
             const matchDate = params.t || '';
             const isHome = params.h !== '0';  // Default to home if not specified
             const subsPerInterval = params.s !== undefined ? parseInt(params.s) : -1;
