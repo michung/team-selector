@@ -202,22 +202,25 @@ header h1 {
 .venue-toggle {
     display: flex;
     gap: 0;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: hidden;
+    border: 2px solid rgba(255, 255, 255, 0.2);
 }
 
 .venue-btn {
-    padding: 8px 16px;
+    padding: 10px 20px;
     border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--white);
-    font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.95rem;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s;
+    min-width: 70px;
 }
 
 .venue-btn:first-child {
     border-radius: 6px 0 0 6px;
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .venue-btn:last-child {
@@ -227,7 +230,7 @@ header h1 {
 .venue-btn.active {
     background: var(--accent);
     color: var(--dark);
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .settings-panel button {
