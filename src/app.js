@@ -90,6 +90,45 @@ export class TeamSelector {
         
         // Show export button if match already ended
         this.updateExportButtonVisibility();
+        
+        // Listen for hash changes (shared URL pasted in same tab)
+        window.addEventListener('hashchange', () => this.handleHashChange());
+    }
+
+    /**
+     * Handle URL hash change (for shared plans pasted in same tab)
+     */
+    handleHashChange() {
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+            const sharedPlan = this.decodePlan(hash);
+            if (sharedPlan) {
+                this.state.players = sharedPlan.players;
+                this.state.intervalLineups = sharedPlan.intervalLineups;
+                this.settings.matchDuration = sharedPlan.matchDuration;
+                this.settings.intervalCount = sharedPlan.intervalCount;
+                if (sharedPlan.opponentName) this.settings.opponentName = sharedPlan.opponentName;
+                if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
+                if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
+                if (sharedPlan.subsPerInterval !== undefined) this.settings.subsPerInterval = sharedPlan.subsPerInterval;
+                
+                // Clear the hash
+                history.replaceState(null, '', window.location.pathname);
+                
+                // Re-render everything with imported data
+                this.initializeIntervalLineups();
+                this.renderIntervalTabs();
+                this.renderPitch();
+                this.renderBench();
+                this.renderStats();
+                this.renderRoster();
+                this.updateTitle();
+                this.updateSubsDisplay();
+                
+                this.showToast('Plan imported!');
+                this.saveState();
+            }
+        }
     }
 
     /**
