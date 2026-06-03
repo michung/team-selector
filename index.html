@@ -182,7 +182,10 @@
                 </div>
                 <div class="setting-row">
                     <label for="match-date">Match Date</label>
-                    <input type="date" id="match-date">
+                    <div class="date-display-wrapper">
+                        <span id="match-date-display" class="date-display">Select date</span>
+                        <input type="date" id="match-date" class="hidden-date-input">
+                    </div>
                 </div>
                 <div class="setting-row">
                     <label for="match-duration">Match Duration (mins)</label>

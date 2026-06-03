@@ -137,8 +137,10 @@ export class TeamSelector {
     loadState() {
         // Check for shared plan in URL hash
         const hash = window.location.hash.slice(1);
+        console.log('loadState - hash:', hash ? hash.substring(0, 100) + '...' : '(empty)');
         if (hash) {
             const sharedPlan = this.decodePlan(hash);
+            console.log('loadState - decodePlan result:', sharedPlan);
             if (sharedPlan) {
                 this.state.players = sharedPlan.players;
                 this.state.intervalLineups = sharedPlan.intervalLineups;
@@ -147,6 +149,7 @@ export class TeamSelector {
                 if (sharedPlan.opponentName) this.settings.opponentName = sharedPlan.opponentName;
                 if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
                 if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
+                if (sharedPlan.subsPerInterval !== undefined) this.settings.subsPerInterval = sharedPlan.subsPerInterval;
                 // Clear the hash so refreshing doesn't re-import
                 history.replaceState(null, '', window.location.pathname);
                 this.showToast('Plan imported!');
@@ -261,6 +264,18 @@ export class TeamSelector {
         if ('vibrate' in navigator) {
             navigator.vibrate(pattern);
         }
+    }
+
+    /**
+     * Format date as "3 Jun" (no year)
+     */
+    formatDate(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const day = date.getDate();
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[date.getMonth()];
+        return `${day} ${month}`;
     }
 
     /**
@@ -402,6 +417,7 @@ export class TeamSelector {
     // ==================== INTERVAL MANAGEMENT ====================
 
     initializeIntervalLineups() {
+        console.log('initializeIntervalLineups - before:', JSON.stringify(this.state.intervalLineups));
         for (let i = 1; i <= this.settings.intervalCount; i++) {
             const lineup = this.state.intervalLineups[i];
             // Only initialize if lineup doesn't exist or is invalid
@@ -409,6 +425,8 @@ export class TeamSelector {
             const needsInit = !lineup || 
                               !Array.isArray(lineup) || 
                               lineup.length !== CONFIG.SLOTS_COUNT;
+            
+            console.log(`initializeIntervalLineups - interval ${i}: needsInit=${needsInit}, lineup length=${lineup?.length}, SLOTS=${CONFIG.SLOTS_COUNT}`);
             
             if (needsInit) {
                 if (i === 1) {
@@ -418,6 +436,7 @@ export class TeamSelector {
                 }
             }
         }
+        console.log('initializeIntervalLineups - after:', JSON.stringify(this.state.intervalLineups));
         this.saveState();
     }
 
@@ -578,12 +597,18 @@ export class TeamSelector {
 
         // Subs per interval steppers
         document.getElementById('subs-dec').addEventListener('click', () => {
-            const newCount = Math.max(0, this.settings.subsPerInterval - 1);
-            this.updateSubsPerInterval(newCount);
+            // If at 0, go to -1 (auto). If at -1, stay at -1.
+            if (this.settings.subsPerInterval <= 0) {
+                this.updateSubsPerInterval(-1);
+            } else {
+                this.updateSubsPerInterval(this.settings.subsPerInterval - 1);
+            }
         });
         document.getElementById('subs-inc').addEventListener('click', () => {
             const maxSubs = this.getMaxBenchSize();
-            const newCount = Math.min(maxSubs, this.settings.subsPerInterval + 1);
+            // If at -1 (auto), start at 0
+            const current = this.settings.subsPerInterval === -1 ? -1 : this.settings.subsPerInterval;
+            const newCount = Math.min(maxSubs, current + 1);
             this.updateSubsPerInterval(newCount);
         });
 
@@ -637,6 +662,8 @@ export class TeamSelector {
                 const newDuration = parseInt(e.target.value) || 10;
                 this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
                 this.renderIntervalTabs();
+                this.renderPitch();
+                this.renderBench();
                 this.renderStats();
             });
             
@@ -645,6 +672,10 @@ export class TeamSelector {
                 const newDuration = parseInt(e.target.value) || 10;
                 this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
                 matchDurationInput.value = this.settings.matchDuration;
+                this.renderIntervalTabs();
+                this.renderPitch();
+                this.renderBench();
+                this.renderStats();
                 this.saveState();
                 this.showToast(`Match duration: ${this.settings.matchDuration} mins`);
             });
@@ -680,15 +711,19 @@ export class TeamSelector {
         
         // Match date input
         const matchDateInput = document.getElementById('match-date');
-        if (matchDateInput) {
+        const matchDateDisplay = document.getElementById('match-date-display');
+        if (matchDateInput && matchDateDisplay) {
             // Default to today if not set
             if (!this.settings.matchDate) {
                 const today = new Date().toISOString().split('T')[0];
                 this.settings.matchDate = today;
             }
             matchDateInput.value = this.settings.matchDate;
+            matchDateDisplay.textContent = this.formatDate(this.settings.matchDate);
+            
             matchDateInput.addEventListener('change', (e) => {
                 this.settings.matchDate = e.target.value;
+                matchDateDisplay.textContent = this.formatDate(e.target.value);
                 this.saveState();
             });
         }
@@ -993,11 +1028,17 @@ export class TeamSelector {
         const lineups = [];
         for (let i = 1; i <= this.settings.intervalCount; i++) {
             const lineup = this.state.intervalLineups[i] || [];
-            const indices = lineup.map(playerId => {
-                if (playerId === null) return '-';
-                const idx = players.findIndex(p => p.id === playerId);
-                return idx >= 0 ? idx : '-';
-            });
+            // Ensure we always encode exactly SLOTS_COUNT slots
+            const indices = [];
+            for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
+                const playerId = lineup[slot];
+                if (playerId === null || playerId === undefined) {
+                    indices.push('-');
+                } else {
+                    const idx = players.findIndex(p => p.id === playerId);
+                    indices.push(idx >= 0 ? idx : '-');
+                }
+            }
             lineups.push(indices.join(','));
         }
         
@@ -1018,6 +1059,8 @@ export class TeamSelector {
         }
         // Add venue (h=1 for home, h=0 for away)
         parts.push(`h=${this.settings.isHome ? 1 : 0}`);
+        // Add subs per interval
+        parts.push(`s=${this.settings.subsPerInterval}`);
         
         return parts.join('|');
     }
@@ -1030,7 +1073,12 @@ export class TeamSelector {
                 params[key] = value;
             });
             
-            if (!params.p || !params.l) return null;
+            console.log('decodePlan - params:', params);
+            
+            if (!params.p || !params.l) {
+                console.log('decodePlan - missing p or l params');
+                return null;
+            }
             
             const names = params.p.split(',').map(n => decodeURIComponent(n));
             const numbers = params.n ? params.n.split(',').map(n => parseInt(n)) : names.map((_, i) => i + 1);
@@ -1042,24 +1090,37 @@ export class TeamSelector {
                 minutesPlayed: 0
             }));
             
+            console.log('decodePlan - players:', players);
+            
             const matchDuration = parseInt(params.d) || 60;
             const intervalCount = parseInt(params.i) || 4;
             const opponentName = params.o ? decodeURIComponent(params.o) : '';
             const matchDate = params.t || '';
             const isHome = params.h !== '0';  // Default to home if not specified
+            const subsPerInterval = params.s !== undefined ? parseInt(params.s) : -1;
             
             const intervalLineups = {};
             const lineupStrs = params.l.split(';');
+            console.log('decodePlan - lineupStrs:', lineupStrs);
             lineupStrs.forEach((lineupStr, intervalIdx) => {
-                const indices = lineupStr.split(',');
-                intervalLineups[intervalIdx + 1] = indices.map(idx => {
-                    if (idx === '-' || idx === '') return null;
-                    const playerIdx = parseInt(idx);
-                    return players[playerIdx] ? players[playerIdx].id : null;
-                });
+                const indices = lineupStr ? lineupStr.split(',') : [];
+                // Ensure we always create exactly SLOTS_COUNT slots
+                const lineup = [];
+                for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
+                    const idx = indices[slot];
+                    if (!idx || idx === '-' || idx === '') {
+                        lineup.push(null);
+                    } else {
+                        const playerIdx = parseInt(idx);
+                        lineup.push(players[playerIdx] ? players[playerIdx].id : null);
+                    }
+                }
+                intervalLineups[intervalIdx + 1] = lineup;
             });
             
-            return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome };
+            console.log('decodePlan - intervalLineups:', intervalLineups);
+            
+            return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome, subsPerInterval };
         } catch (e) {
             console.error('Failed to decode plan:', e);
             return null;
@@ -1228,12 +1289,16 @@ export class TeamSelector {
 
     updateSubsDisplay() {
         const maxSubs = this.getMaxBenchSize();
-        // Initialize to max if unset (-1) or clamp if exceeds current max
-        if (this.settings.subsPerInterval === -1 || this.settings.subsPerInterval > maxSubs) {
+        // Clamp if exceeds current max (but keep -1 as auto)
+        if (this.settings.subsPerInterval > maxSubs) {
             this.settings.subsPerInterval = maxSubs;
         }
         if (this.elements.subsCount) {
-            this.elements.subsCount.textContent = this.settings.subsPerInterval;
+            if (this.settings.subsPerInterval === -1) {
+                this.elements.subsCount.textContent = 'Auto';
+            } else {
+                this.elements.subsCount.textContent = this.settings.subsPerInterval;
+            }
         }
     }
 
@@ -1388,7 +1453,8 @@ export class TeamSelector {
             
             // Bench swap logic - only for open slots
             const onBench = availablePlayers.filter(p => !assignedThisInterval.has(p.id));
-            const maxSwaps = Math.min(this.settings.subsPerInterval, onBench.length);
+            const subsLimit = this.settings.subsPerInterval === -1 ? onBench.length : this.settings.subsPerInterval;
+            const maxSwaps = Math.min(subsLimit, onBench.length);
             let swapCount = 0;
             
             onBench.sort((a, b) => {
