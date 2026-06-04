@@ -64,7 +64,7 @@ export const DEFAULT_SETTINGS = {
     matchDuration: CONFIG.DEFAULT_MATCH_DURATION,
     intervalCount: 4,
     playersOnPitch: CONFIG.SLOTS_COUNT,
-    subsPerInterval: -1,  // -1 means auto (will be set to squad size)
+    subsPerInterval: 0,  // 0 to max bench size
     opponentName: '',
     matchDate: '',
     isHome: true

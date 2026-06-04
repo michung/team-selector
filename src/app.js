@@ -647,18 +647,12 @@ export class TeamSelector {
 
         // Subs per interval steppers
         document.getElementById('subs-dec').addEventListener('click', () => {
-            // If at 0, go to -1 (auto). If at -1, stay at -1.
-            if (this.settings.subsPerInterval <= 0) {
-                this.updateSubsPerInterval(-1);
-            } else {
-                this.updateSubsPerInterval(this.settings.subsPerInterval - 1);
-            }
+            const newCount = Math.max(0, this.settings.subsPerInterval - 1);
+            this.updateSubsPerInterval(newCount);
         });
         document.getElementById('subs-inc').addEventListener('click', () => {
             const maxSubs = this.getMaxBenchSize();
-            // If at -1 (auto), start at 0
-            const current = this.settings.subsPerInterval === -1 ? -1 : this.settings.subsPerInterval;
-            const newCount = Math.min(maxSubs, current + 1);
+            const newCount = Math.min(maxSubs, this.settings.subsPerInterval + 1);
             this.updateSubsPerInterval(newCount);
         });
 
@@ -1156,7 +1150,7 @@ export class TeamSelector {
             }
             const matchDate = params.t || '';
             const isHome = params.h !== '0';  // Default to home if not specified
-            const subsPerInterval = params.s !== undefined ? parseInt(params.s) : -1;
+            const subsPerInterval = params.s !== undefined ? parseInt(params.s) : 0;
             
             const intervalLineups = {};
             const lineupStrs = params.l.split(';');
@@ -1345,16 +1339,15 @@ export class TeamSelector {
 
     updateSubsDisplay() {
         const maxSubs = this.getMaxBenchSize();
-        // Clamp if exceeds current max (but keep -1 as auto)
+        // Clamp to valid range [0, maxSubs]
+        if (this.settings.subsPerInterval < 0) {
+            this.settings.subsPerInterval = maxSubs;
+        }
         if (this.settings.subsPerInterval > maxSubs) {
             this.settings.subsPerInterval = maxSubs;
         }
         if (this.elements.subsCount) {
-            if (this.settings.subsPerInterval === -1) {
-                this.elements.subsCount.textContent = 'Auto';
-            } else {
-                this.elements.subsCount.textContent = this.settings.subsPerInterval;
-            }
+            this.elements.subsCount.textContent = this.settings.subsPerInterval;
         }
     }
 
@@ -1449,100 +1442,110 @@ export class TeamSelector {
         
         // Build lineups interval by interval
         for (let interval = 1; interval <= intervals; interval++) {
-            const lineup = new Array(pitchSize).fill(null);
             const locked = lockedPerInterval[interval];
+            let lineup;
             
-            // Set GK (locked or default)
-            lineup[0] = locked.has(0) ? locked.get(0) : gkId;
-            
-            // Set all locked players in their positions
-            for (const [slot, playerId] of locked) {
-                lineup[slot] = playerId;
-            }
-            
-            // Track who's already assigned this interval
-            const assignedThisInterval = new Set(lineup.filter(id => id !== null));
-            
-            // Open slots (not locked)
-            const openSlots = [];
-            for (let slot = 1; slot < pitchSize; slot++) {
-                if (!locked.has(slot)) {
-                    openSlots.push(slot);
+            if (interval === 1) {
+                // First interval: build from scratch
+                lineup = new Array(pitchSize).fill(null);
+                lineup[0] = locked.has(0) ? locked.get(0) : gkId;
+                
+                // Set locked players
+                for (const [slot, playerId] of locked) {
+                    lineup[slot] = playerId;
                 }
-            }
-            
-            // For each open slot, find best player
-            for (const slot of openSlots) {
-                const candidates = availablePlayers.filter(p => 
-                    !assignedThisInterval.has(p.id) &&
-                    p.preferredPositions?.includes(slot)
-                );
                 
-                if (candidates.length > 0) {
-                    candidates.sort((a, b) => {
-                        const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
-                        return diff !== 0 ? diff : Math.random() - 0.5;
-                    });
-                    
-                    const chosen = candidates[0];
-                    lineup[slot] = chosen.id;
-                    assignedThisInterval.add(chosen.id);
+                const assignedThisInterval = new Set(lineup.filter(id => id !== null));
+                
+                // Fill open slots with preferred position players (least time first)
+                const openSlots = [];
+                for (let slot = 1; slot < pitchSize; slot++) {
+                    if (!locked.has(slot)) openSlots.push(slot);
                 }
-            }
-            
-            // Fill remaining empty open slots
-            for (const slot of openSlots) {
-                if (lineup[slot] !== null) continue;
                 
-                const unassigned = availablePlayers
-                    .filter(p => !assignedThisInterval.has(p.id))
-                    .sort((a, b) => {
-                        const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
-                        return diff !== 0 ? diff : Math.random() - 0.5;
-                    });
-                
-                if (unassigned.length > 0) {
-                    lineup[slot] = unassigned[0].id;
-                    assignedThisInterval.add(unassigned[0].id);
+                for (const slot of openSlots) {
+                    const candidates = availablePlayers
+                        .filter(p => !assignedThisInterval.has(p.id) && p.preferredPositions?.includes(slot))
+                        .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
+                    
+                    if (candidates.length > 0) {
+                        lineup[slot] = candidates[0].id;
+                        assignedThisInterval.add(candidates[0].id);
+                    }
                 }
-            }
-            
-            // Bench swap logic - only for open slots
-            const onBench = availablePlayers.filter(p => !assignedThisInterval.has(p.id));
-            const subsLimit = this.settings.subsPerInterval === -1 ? onBench.length : this.settings.subsPerInterval;
-            const maxSwaps = Math.min(subsLimit, onBench.length);
-            let swapCount = 0;
-            
-            onBench.sort((a, b) => {
-                const diff = intervalsPlayed[a.id] - intervalsPlayed[b.id];
-                return diff !== 0 ? diff : Math.random() - 0.5;
-            });
-            
-            for (const sub of onBench) {
-                if (swapCount >= maxSwaps) break;
                 
-                const subTime = intervalsPlayed[sub.id];
-                const subPrefs = sub.preferredPositions || [];
+                // Fill remaining empty slots
+                for (const slot of openSlots) {
+                    if (lineup[slot] !== null) continue;
+                    const unassigned = availablePlayers
+                        .filter(p => !assignedThisInterval.has(p.id))
+                        .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
+                    if (unassigned.length > 0) {
+                        lineup[slot] = unassigned[0].id;
+                        assignedThisInterval.add(unassigned[0].id);
+                    }
+                }
+            } else {
+                // Subsequent intervals: start from previous and make limited subs
+                lineup = [...this.state.intervalLineups[interval - 1]];
                 
-                for (const prefSlot of subPrefs) {
-                    if (prefSlot === 0 || locked.has(prefSlot)) continue;
+                // Apply locked positions for this interval
+                lineup[0] = locked.has(0) ? locked.get(0) : gkId;
+                for (const [slot, playerId] of locked) {
+                    lineup[slot] = playerId;
+                }
+                
+                // Find bench players (not in current lineup), sorted by least playing time
+                const pitchIds = new Set(lineup.filter(id => id !== null));
+                const onBench = availablePlayers
+                    .filter(p => !pitchIds.has(p.id))
+                    .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
+                
+                // Determine sub limit
+                const subsLimit = this.settings.subsPerInterval;
+                let subsRemaining = Math.min(subsLimit, onBench.length);
+                
+                // Find unlocked outfield slots, sorted by most playing time (swap out highest first)
+                const swappableSlots = [];
+                for (let slot = 1; slot < pitchSize; slot++) {
+                    if (!locked.has(slot) && lineup[slot]) {
+                        swappableSlots.push({ slot, playerId: lineup[slot], time: intervalsPlayed[lineup[slot]] });
+                    }
+                }
+                swappableSlots.sort((a, b) => b.time - a.time || Math.random() - 0.5);
+                
+                // Make subs: bring in players with least time, swap out players with most time
+                for (const sub of onBench) {
+                    if (subsRemaining <= 0) break;
+                    if (swappableSlots.length === 0) break;
                     
-                    const currentPlayerId = lineup[prefSlot];
-                    if (!currentPlayerId) continue;
+                    const subPrefs = sub.preferredPositions || [];
                     
-                    const currentTime = intervalsPlayed[currentPlayerId];
+                    // Try to swap into a preferred position first
+                    let swapped = false;
+                    for (const prefSlot of subPrefs) {
+                        const swapIdx = swappableSlots.findIndex(s => s.slot === prefSlot);
+                        if (swapIdx !== -1) {
+                            lineup[prefSlot] = sub.id;
+                            swappableSlots.splice(swapIdx, 1);
+                            subsRemaining--;
+                            swapped = true;
+                            break;
+                        }
+                    }
                     
-                    if (subTime < currentTime) {
-                        lineup[prefSlot] = sub.id;
-                        swapCount++;
-                        break;
+                    // If no preferred slot available, take the slot with highest play time
+                    if (!swapped && swappableSlots.length > 0) {
+                        const target = swappableSlots.shift();
+                        lineup[target.slot] = sub.id;
+                        subsRemaining--;
                     }
                 }
             }
             
-            // Update intervals played
-            for (const slot of openSlots) {
-                if (lineup[slot]) {
+            // Update intervals played for non-locked outfield slots
+            for (let slot = 1; slot < pitchSize; slot++) {
+                if (lineup[slot] && !locked.has(slot)) {
                     intervalsPlayed[lineup[slot]]++;
                 }
             }
