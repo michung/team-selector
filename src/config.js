@@ -57,7 +57,9 @@ export const DEFAULT_STATE = {
     scoreThem: 0,
     goalHistory: [],
     matchEvents: [],
-    speedMultiplier: 1
+    speedMultiplier: 1,
+    playerRatings: {},
+    playerOfTheMatch: null
 };
 
 export const DEFAULT_SETTINGS = {

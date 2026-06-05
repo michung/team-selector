@@ -229,8 +229,13 @@ export class TimerManager {
         this.elements.playPauseBtn.textContent = '✓';
         this.elements.stopBtn.disabled = true;
         
-        // Show export stats button
+        // Show export stats button and rate button
         this.app.updateExportButtonVisibility();
+        
+        // Auto-show rating picker after a brief delay
+        setTimeout(() => {
+            this.app.showRatingPicker();
+        }, 1500);
         
         this.app.saveState();
     }

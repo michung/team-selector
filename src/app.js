@@ -5,6 +5,7 @@ import { SubsManager } from './managers/SubsManager.js';
 import { EventManager } from './managers/EventManager.js';
 import { RenderManager } from './managers/RenderManager.js';
 import { DragManager } from './managers/DragManager.js';
+import { AutoLineupManager } from './managers/AutoLineupManager.js';
 
 /**
  * Main Team Selector Application
@@ -26,6 +27,7 @@ export class TeamSelector {
         this.events = new EventManager(this);
         this.renderer = new RenderManager(this);
         this.drag = new DragManager(this);
+        this.autoLineup = new AutoLineupManager(this);
 
         // Slot fill order for auto-placement
         this.slotFillOrder = SLOT_FILL_ORDER;
@@ -160,8 +162,13 @@ export class TeamSelector {
             eventsLog: document.getElementById('events-log'),
             subsSummary: document.getElementById('subs-summary'),
             assistPicker: document.getElementById('assist-picker'),
+            ratingPicker: document.getElementById('rating-picker'),
+            ratingPlayers: document.getElementById('rating-players'),
+            ratingSaveBtn: document.getElementById('rating-save-btn'),
+            ratingCancelBtn: document.getElementById('rating-cancel-btn'),
             toastContainer: document.getElementById('toast-container'),
             pitchActions: document.getElementById('pitch-actions'),
+            pitchEndgameActions: document.getElementById('pitch-endgame-actions'),
             subsIcon: document.getElementById('subs-icon'),
             subsBadge: document.getElementById('subs-badge'),
             swipeHintLeft: document.getElementById('swipe-hint-left'),
@@ -172,6 +179,7 @@ export class TeamSelector {
             intervalCount: document.getElementById('interval-count'),
             subsCount: document.getElementById('subs-count'),
             exportStatsBtn: document.getElementById('export-stats-btn'),
+            ratePlayersBtn: document.getElementById('rate-players-btn'),
             resetMatchBtn: document.getElementById('reset-match')
         };
     }
@@ -333,6 +341,110 @@ export class TeamSelector {
     }
 
     /**
+     * Show the player rating picker overlay
+     */
+    showRatingPicker() {
+        const container = this.elements.ratingPlayers;
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        // Get all players, sorted by minutes played (descending) - players who played first, then unused subs
+        const allPlayers = [...this.state.players]
+            .sort((a, b) => (b.minutesPlayed || 0) - (a.minutesPlayed || 0));
+        
+        allPlayers.forEach(player => {
+            const currentRating = this.state.playerRatings[player.id] || 6;
+            const isPotm = this.state.playerOfTheMatch === player.id;
+            
+            const row = document.createElement('div');
+            row.className = `rating-player-row${isPotm ? ' potm-selected' : ''}`;
+            row.dataset.playerId = player.id;
+            
+            // Stats: minutes always shown, goals/assists as text
+            const minutes = Math.floor(player.minutesPlayed || 0);
+            const stats = [];
+            if (player.goals) stats.push(`${player.goals}G`);
+            if (player.assists) stats.push(`${player.assists}A`);
+            const statsText = `${minutes}' ${stats.join(' ')}`.trim();
+            
+            row.innerHTML = `
+                <span class="rating-potm-star">⭐</span>
+                <div class="rating-player-info">
+                    <span class="rating-player-number">${player.number}</span>
+                    <span class="rating-player-name">${player.name}</span>
+                    <span class="rating-player-stats">${statsText}</span>
+                </div>
+                <div class="rating-stepper">
+                    <button class="rating-stepper-btn" data-action="dec" ${currentRating <= 1 ? 'disabled' : ''}>−</button>
+                    <span class="rating-value ${currentRating >= 8 ? 'rating-high' : currentRating <= 4 ? 'rating-low' : ''}">${currentRating}</span>
+                    <button class="rating-stepper-btn" data-action="inc" ${currentRating >= 10 ? 'disabled' : ''}>+</button>
+                </div>
+            `;
+            
+            // Click row to select POTM
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('.rating-stepper-btn')) return;
+                
+                // Toggle POTM selection
+                const wasSelected = this.state.playerOfTheMatch === player.id;
+                this.state.playerOfTheMatch = wasSelected ? null : player.id;
+                
+                // Update UI
+                container.querySelectorAll('.rating-player-row').forEach(r => {
+                    r.classList.toggle('potm-selected', r.dataset.playerId === String(this.state.playerOfTheMatch));
+                });
+            });
+            
+            // Stepper buttons
+            row.querySelectorAll('.rating-stepper-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const action = btn.dataset.action;
+                    let rating = this.state.playerRatings[player.id] || 6;
+                    
+                    if (action === 'inc' && rating < 10) rating++;
+                    if (action === 'dec' && rating > 1) rating--;
+                    
+                    this.state.playerRatings[player.id] = rating;
+                    
+                    // Update display
+                    const valueEl = row.querySelector('.rating-value');
+                    valueEl.textContent = rating;
+                    valueEl.className = `rating-value ${rating >= 8 ? 'rating-high' : rating <= 4 ? 'rating-low' : ''}`;
+                    
+                    // Update button states
+                    row.querySelector('[data-action="dec"]').disabled = rating <= 1;
+                    row.querySelector('[data-action="inc"]').disabled = rating >= 10;
+                });
+            });
+            
+            container.appendChild(row);
+        });
+        
+        this.elements.ratingPicker.style.display = 'flex';
+    }
+
+    /**
+     * Hide the rating picker
+     */
+    hideRatingPicker() {
+        this.elements.ratingPicker.style.display = 'none';
+    }
+
+    /**
+     * Save ratings and close picker
+     */
+    saveRatings() {
+        this.saveState();
+        this.hideRatingPicker();
+        // Re-render to show rating badges on player cards
+        this.renderPitch();
+        this.renderBench();
+        this.showToast('Ratings saved!', 'success');
+    }
+
+    /**
      * Export game stats to clipboard as CSV
      */
     exportStats() {
@@ -348,6 +460,15 @@ export class TeamSelector {
         }
         lines.push('');
         
+        // Player of the Match
+        if (this.state.playerOfTheMatch) {
+            const potm = this.getPlayerById(this.state.playerOfTheMatch);
+            if (potm) {
+                lines.push(`Player of the Match,${potm.name}`);
+                lines.push('');
+            }
+        }
+        
         // Starting lineup
         const starters = this.state.players
             .filter(p => p.startedGame)
@@ -356,8 +477,8 @@ export class TeamSelector {
         lines.push(starters.join(', '));
         lines.push('');
         
-        // Player stats table
-        const headers = ['Player', 'Started', 'Minutes', 'Goals', 'Assists'];
+        // Player stats table (include Rating column)
+        const headers = ['Player', 'Started', 'Minutes', 'Goals', 'Assists', 'Rating'];
         lines.push(headers.join(','));
         
         // Get all players sorted by minutes descending
@@ -366,12 +487,14 @@ export class TeamSelector {
         
         // Add player rows
         for (const player of players) {
+            const rating = this.state.playerRatings[player.id];
             const row = [
                 player.name,
                 player.startedGame ? 'Yes' : 'No',
                 Math.floor(player.minutesPlayed || 0),
                 player.goals || 0,
-                player.assists || 0
+                player.assists || 0,
+                rating || ''
             ];
             lines.push(row.join(','));
         }
@@ -429,8 +552,8 @@ export class TeamSelector {
      * Update export button visibility based on match state
      */
     updateExportButtonVisibility() {
-        if (this.elements.exportStatsBtn) {
-            this.elements.exportStatsBtn.style.display = this.state.matchEnded ? 'inline-block' : 'none';
+        if (this.elements.pitchEndgameActions) {
+            this.elements.pitchEndgameActions.style.display = this.state.matchEnded ? 'flex' : 'none';
         }
     }
 
@@ -635,6 +758,10 @@ export class TeamSelector {
         document.getElementById('score-them-team').addEventListener('click', () => this.recordGoal(null, 'them'));
         document.getElementById('no-assist-btn').addEventListener('click', () => this.skipAssist());
 
+        // Rating picker controls
+        this.elements.ratingSaveBtn?.addEventListener('click', () => this.saveRatings());
+        this.elements.ratingCancelBtn?.addEventListener('click', () => this.hideRatingPicker());
+
         // Interval count steppers
         document.getElementById('interval-dec').addEventListener('click', () => {
             const newCount = Math.max(CONFIG.INTERVAL_LIMITS.MIN, this.settings.intervalCount - 1);
@@ -774,6 +901,9 @@ export class TeamSelector {
         
         // Export stats button
         this.elements.exportStatsBtn?.addEventListener('click', () => this.exportStats());
+        
+        // Rate players button
+        this.elements.ratePlayersBtn?.addEventListener('click', () => this.showRatingPicker());
         
         // Share plan button
         this.elements.sharePlanBtn?.addEventListener('click', () => this.sharePlan());
@@ -1064,117 +1194,166 @@ export class TeamSelector {
     }
 
     encodePlan() {
-        // Compact format: p=name1,name2|n=num1,num2|l=lineup1;lineup2|d=duration|i=intervals
+        // Build a compact JSON object and Base64 encode it
         const players = this.state.players;
-        const names = players.map(p => encodeURIComponent(p.name)).join(',');
-        const numbers = players.map(p => p.number).join(',');
         
         // Build lineups using player array index (not player ID)
         const lineups = [];
         for (let i = 1; i <= this.settings.intervalCount; i++) {
             const lineup = this.state.intervalLineups[i] || [];
-            // Ensure we always encode exactly SLOTS_COUNT slots
             const indices = [];
             for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
                 const playerId = lineup[slot];
                 if (playerId === null || playerId === undefined) {
-                    indices.push('-');
+                    indices.push(null);
                 } else {
                     const idx = players.findIndex(p => p.id === playerId);
-                    indices.push(idx >= 0 ? idx : '-');
+                    indices.push(idx >= 0 ? idx : null);
                 }
             }
-            lineups.push(indices.join(','));
+            lineups.push(indices);
         }
         
-        const parts = [
-            `p=${names}`,
-            `n=${numbers}`,
-            `l=${lineups.join(';')}`,
-            `d=${this.settings.matchDuration}`,
-            `i=${this.settings.intervalCount}`
-        ];
+        const data = {
+            p: players.map(p => p.name),           // player names
+            n: players.map(p => p.number),          // player numbers
+            l: lineups,                             // lineups (array of arrays)
+            d: this.settings.matchDuration,         // duration
+            i: this.settings.intervalCount,         // intervals
+            o: this.settings.opponentName || '',    // opponent
+            t: this.settings.matchDate || '',       // date
+            h: this.settings.isHome ? 1 : 0,        // home/away
+            s: this.settings.subsPerInterval        // subs per interval
+        };
         
-        // Add optional opponent name and match date
-        if (this.settings.opponentName) {
-            parts.push(`o=${encodeURIComponent(this.settings.opponentName)}`);
-        }
-        if (this.settings.matchDate) {
-            parts.push(`t=${this.settings.matchDate}`);
-        }
-        // Add venue (h=1 for home, h=0 for away)
-        parts.push(`h=${this.settings.isHome ? 1 : 0}`);
-        // Add subs per interval
-        parts.push(`s=${this.settings.subsPerInterval}`);
-        
-        return parts.join('|');
+        // Base64 encode (URL-safe: replace + with - and / with _)
+        const json = JSON.stringify(data);
+        const base64 = btoa(unescape(encodeURIComponent(json)));
+        return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
-    decodePlan(hash) {
+    decodePlan(encoded) {
         try {
-            // Handle URL-encoded pipes (some apps encode | as %7C)
-            const normalizedHash = hash.replace(/%7C/gi, '|');
-            
-            const params = {};
-            normalizedHash.split('|').forEach(part => {
-                const [key, value] = part.split('=');
-                params[key] = value;
-            });
-            
-            if (!params.p || !params.l) return null;
-            
-            // Decode names - handle potential double-encoding from some apps
-            const names = params.p.split(',').map(n => {
-                let decoded = decodeURIComponent(n);
-                // If still contains %XX patterns, decode again (double-encoded)
-                if (decoded.includes('%')) {
-                    try { decoded = decodeURIComponent(decoded); } catch(e) {}
-                }
-                return decoded;
-            });
-            const numbers = params.n ? params.n.split(',').map(n => parseInt(n)) : names.map((_, i) => i + 1);
-            
-            const players = names.map((name, idx) => ({
-                id: idx + 1,
-                name: name,
-                number: numbers[idx] || idx + 1,
-                minutesPlayed: 0
-            }));
-            
-            const matchDuration = parseInt(params.d) || 60;
-            const intervalCount = parseInt(params.i) || 4;
-            let opponentName = params.o ? decodeURIComponent(params.o) : '';
-            // Handle potential double-encoding
-            if (opponentName.includes('%')) {
-                try { opponentName = decodeURIComponent(opponentName); } catch(e) {}
+            // Try Base64 decode first (new format)
+            if (!encoded.includes('|') && !encoded.includes('=')) {
+                return this.decodePlanBase64(encoded);
             }
-            const matchDate = params.t || '';
-            const isHome = params.h !== '0';  // Default to home if not specified
-            const subsPerInterval = params.s !== undefined ? parseInt(params.s) : 0;
-            
-            const intervalLineups = {};
-            const lineupStrs = params.l.split(';');
-            lineupStrs.forEach((lineupStr, intervalIdx) => {
-                const indices = lineupStr ? lineupStr.split(',') : [];
-                // Ensure we always create exactly SLOTS_COUNT slots
-                const lineup = [];
-                for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
-                    const idx = indices[slot];
-                    if (!idx || idx === '-' || idx === '') {
-                        lineup.push(null);
-                    } else {
-                        const playerIdx = parseInt(idx);
-                        lineup.push(players[playerIdx] ? players[playerIdx].id : null);
-                    }
-                }
-                intervalLineups[intervalIdx + 1] = lineup;
-            });
-            
-            return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome, subsPerInterval };
+            // Fall back to old pipe-delimited format
+            return this.decodePlanLegacy(encoded);
         } catch (e) {
-            console.error('Failed to decode plan:', e);
-            return null;
+            // If Base64 fails, try legacy format
+            try {
+                return this.decodePlanLegacy(encoded);
+            } catch (e2) {
+                console.error('Failed to decode plan:', e2);
+                return null;
+            }
         }
+    }
+
+    decodePlanBase64(encoded) {
+        // Restore URL-safe Base64 to standard Base64
+        let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+        // Add padding if needed
+        while (base64.length % 4) base64 += '=';
+        
+        const json = decodeURIComponent(escape(atob(base64)));
+        const data = JSON.parse(json);
+        
+        const players = data.p.map((name, idx) => ({
+            id: idx + 1,
+            name: name,
+            number: data.n[idx] || idx + 1,
+            minutesPlayed: 0
+        }));
+        
+        const intervalLineups = {};
+        data.l.forEach((indices, intervalIdx) => {
+            const lineup = [];
+            for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
+                const idx = indices[slot];
+                if (idx === null || idx === undefined) {
+                    lineup.push(null);
+                } else {
+                    lineup.push(players[idx] ? players[idx].id : null);
+                }
+            }
+            intervalLineups[intervalIdx + 1] = lineup;
+        });
+        
+        return {
+            players,
+            matchDuration: data.d || 60,
+            intervalCount: data.i || 4,
+            intervalLineups,
+            opponentName: data.o || '',
+            matchDate: data.t || '',
+            isHome: data.h !== 0,
+            subsPerInterval: data.s !== undefined ? data.s : 0
+        };
+    }
+
+    // Legacy decoder for old pipe-delimited format (backward compatibility)
+    decodePlanLegacy(hash) {
+        // Handle URL-encoded pipes (some apps encode | as %7C)
+        const normalizedHash = hash.replace(/%7C/gi, '|');
+        
+        const params = {};
+        normalizedHash.split('|').forEach(part => {
+            const [key, value] = part.split('=');
+            params[key] = value;
+        });
+        
+        if (!params.p || !params.l) return null;
+        
+        // Decode names - handle potential double-encoding from some apps
+        const names = params.p.split(',').map(n => {
+            let decoded = decodeURIComponent(n);
+            // If still contains %XX patterns, decode again (double-encoded)
+            if (decoded.includes('%')) {
+                try { decoded = decodeURIComponent(decoded); } catch(e) {}
+            }
+            return decoded;
+        });
+        const numbers = params.n ? params.n.split(',').map(n => parseInt(n)) : names.map((_, i) => i + 1);
+        
+        const players = names.map((name, idx) => ({
+            id: idx + 1,
+            name: name,
+            number: numbers[idx] || idx + 1,
+            minutesPlayed: 0
+        }));
+        
+        const matchDuration = parseInt(params.d) || 60;
+        const intervalCount = parseInt(params.i) || 4;
+        let opponentName = params.o ? decodeURIComponent(params.o) : '';
+        // Handle potential double-encoding
+        if (opponentName.includes('%')) {
+            try { opponentName = decodeURIComponent(opponentName); } catch(e) {}
+        }
+        const matchDate = params.t || '';
+        const isHome = params.h !== '0';  // Default to home if not specified
+        const subsPerInterval = params.s !== undefined ? parseInt(params.s) : 0;
+        
+        const intervalLineups = {};
+        const lineupStrs = params.l.split(';');
+        lineupStrs.forEach((lineupStr, intervalIdx) => {
+            const indices = lineupStr ? lineupStr.split(',') : [];
+            // Ensure we always create exactly SLOTS_COUNT slots
+            const lineup = [];
+            for (let slot = 0; slot < CONFIG.SLOTS_COUNT; slot++) {
+                const idx = indices[slot];
+                if (!idx || idx === '-' || idx === '') {
+                    lineup.push(null);
+                } else {
+                    const playerIdx = parseInt(idx);
+                    lineup.push(players[playerIdx] ? players[playerIdx].id : null);
+                }
+            }
+            intervalLineups[intervalIdx + 1] = lineup;
+        });
+        
+        return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome, subsPerInterval };
     }
 
     // ==================== RENDERING ====================
@@ -1374,200 +1553,7 @@ export class TeamSelector {
     // ==================== AUTO LINEUP GENERATION ====================
 
     autoGenerateSubs() {
-        const players = this.state.players;
-        const intervals = this.settings.intervalCount;
-        const pitchSize = CONFIG.SLOTS_COUNT;
-        
-        if (players.length < pitchSize) {
-            this.showToast('Need at least 9 players');
-            return;
-        }
-        
-        // Save existing lineups to get pinned player values
-        const existingLineups = {};
-        for (let i = 1; i <= intervals; i++) {
-            existingLineups[i] = this.state.intervalLineups[i] 
-                ? [...this.state.intervalLineups[i]] 
-                : Array(pitchSize).fill(null);
-        }
-        
-        // Build locked positions from pinnedPositions
-        const lockedPerInterval = {};
-        const lockedPlayerIds = new Set();
-        
-        for (let interval = 1; interval <= intervals; interval++) {
-            lockedPerInterval[interval] = new Map();
-            for (let slot = 0; slot < pitchSize; slot++) {
-                if (this.isPositionPinned(interval, slot)) {
-                    const playerId = existingLineups[interval][slot];
-                    if (playerId !== null) {
-                        lockedPerInterval[interval].set(slot, playerId);
-                        lockedPlayerIds.add(playerId);
-                    }
-                }
-            }
-        }
-        
-        // Clear lineups to rebuild
-        this.state.intervalLineups = {};
-        
-        // Find the GK - check if any GK is locked, otherwise use default
-        let gkId = null;
-        for (let interval = 1; interval <= intervals; interval++) {
-            if (lockedPerInterval[interval].has(0)) {
-                gkId = lockedPerInterval[interval].get(0);
-                break;
-            }
-        }
-        if (!gkId) {
-            const gk = players.find(p => p.preferredPositions?.includes(0)) || players[0];
-            gkId = gk.id;
-        }
-        
-        // Available players for rotation (everyone except GK)
-        const availablePlayers = players.filter(p => p.id !== gkId);
-        
-        // Track how many intervals each player has been assigned
-        const intervalsPlayed = {};
-        availablePlayers.forEach(p => intervalsPlayed[p.id] = 0);
-        
-        // Pre-count locked intervals for each player
-        for (let interval = 1; interval <= intervals; interval++) {
-            for (const [slot, playerId] of lockedPerInterval[interval]) {
-                if (slot !== 0 && intervalsPlayed[playerId] !== undefined) {
-                    intervalsPlayed[playerId]++;
-                }
-            }
-        }
-        
-        // Build lineups interval by interval
-        for (let interval = 1; interval <= intervals; interval++) {
-            const locked = lockedPerInterval[interval];
-            let lineup;
-            
-            if (interval === 1) {
-                // First interval: build from scratch
-                lineup = new Array(pitchSize).fill(null);
-                lineup[0] = locked.has(0) ? locked.get(0) : gkId;
-                
-                // Set locked players
-                for (const [slot, playerId] of locked) {
-                    lineup[slot] = playerId;
-                }
-                
-                const assignedThisInterval = new Set(lineup.filter(id => id !== null));
-                
-                // Fill open slots with preferred position players (least time first)
-                const openSlots = [];
-                for (let slot = 1; slot < pitchSize; slot++) {
-                    if (!locked.has(slot)) openSlots.push(slot);
-                }
-                
-                for (const slot of openSlots) {
-                    const candidates = availablePlayers
-                        .filter(p => !assignedThisInterval.has(p.id) && p.preferredPositions?.includes(slot))
-                        .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
-                    
-                    if (candidates.length > 0) {
-                        lineup[slot] = candidates[0].id;
-                        assignedThisInterval.add(candidates[0].id);
-                    }
-                }
-                
-                // Fill remaining empty slots
-                for (const slot of openSlots) {
-                    if (lineup[slot] !== null) continue;
-                    const unassigned = availablePlayers
-                        .filter(p => !assignedThisInterval.has(p.id))
-                        .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
-                    if (unassigned.length > 0) {
-                        lineup[slot] = unassigned[0].id;
-                        assignedThisInterval.add(unassigned[0].id);
-                    }
-                }
-            } else {
-                // Subsequent intervals: start from previous and make limited subs
-                lineup = [...this.state.intervalLineups[interval - 1]];
-                
-                // Apply locked positions for this interval
-                lineup[0] = locked.has(0) ? locked.get(0) : gkId;
-                for (const [slot, playerId] of locked) {
-                    lineup[slot] = playerId;
-                }
-                
-                // Find bench players (not in current lineup), sorted by least playing time
-                const pitchIds = new Set(lineup.filter(id => id !== null));
-                const onBench = availablePlayers
-                    .filter(p => !pitchIds.has(p.id))
-                    .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
-                
-                // Determine sub limit
-                const subsLimit = this.settings.subsPerInterval;
-                let subsRemaining = Math.min(subsLimit, onBench.length);
-                
-                // Find unlocked outfield slots, sorted by most playing time (swap out highest first)
-                const swappableSlots = [];
-                for (let slot = 1; slot < pitchSize; slot++) {
-                    if (!locked.has(slot) && lineup[slot]) {
-                        swappableSlots.push({ slot, playerId: lineup[slot], time: intervalsPlayed[lineup[slot]] });
-                    }
-                }
-                swappableSlots.sort((a, b) => b.time - a.time || Math.random() - 0.5);
-                
-                // Make subs: bring in players with least time, swap out players with most time
-                for (const sub of onBench) {
-                    if (subsRemaining <= 0) break;
-                    if (swappableSlots.length === 0) break;
-                    
-                    const subPrefs = sub.preferredPositions || [];
-                    
-                    // Try to swap into a preferred position first
-                    let swapped = false;
-                    for (const prefSlot of subPrefs) {
-                        const swapIdx = swappableSlots.findIndex(s => s.slot === prefSlot);
-                        if (swapIdx !== -1) {
-                            lineup[prefSlot] = sub.id;
-                            swappableSlots.splice(swapIdx, 1);
-                            subsRemaining--;
-                            swapped = true;
-                            break;
-                        }
-                    }
-                    
-                    // If no preferred slot available, take the slot with highest play time
-                    if (!swapped && swappableSlots.length > 0) {
-                        const target = swappableSlots.shift();
-                        lineup[target.slot] = sub.id;
-                        subsRemaining--;
-                    }
-                }
-            }
-            
-            // Update intervals played for non-locked outfield slots
-            for (let slot = 1; slot < pitchSize; slot++) {
-                if (lineup[slot] && !locked.has(slot)) {
-                    intervalsPlayed[lineup[slot]]++;
-                }
-            }
-            
-            this.state.intervalLineups[interval] = lineup;
-        }
-        
-        // Show result message
-        const lockedCount = lockedPlayerIds.size;
-        const intervalDuration = this.settings.matchDuration / intervals;
-        const outfieldSlots = pitchSize - 1;
-        const totalPlayingSlots = intervals * outfieldSlots;
-        const targetIntervals = totalPlayingSlots / availablePlayers.length;
-        const avgMinutes = Math.round(targetIntervals * intervalDuration);
-        
-        const msg = lockedCount > 0 
-            ? `Kept ${lockedCount} pinned · ~${avgMinutes} mins for others`
-            : `~${targetIntervals.toFixed(1)} intervals · ~${avgMinutes} mins each`;
-        this.showToast(msg);
-        
-        this.renderAll();
-        this.saveState();
+        this.autoLineup.generate();
     }
 
     clearAllLineups() {

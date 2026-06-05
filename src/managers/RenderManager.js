@@ -221,9 +221,21 @@ export class RenderManager {
             && this.app.isPositionPinned(this.state.selectedPlanInterval, slotIndex);
         const pinBadge = isPinned ? '<span class="pin-badge">📌</span>' : '';
         
+        // Player rating badge (only show if match ended and rating exists, but NOT for POTM)
+        const rating = this.state.playerRatings?.[player.id];
+        const isPotm = this.state.matchEnded && this.state.playerOfTheMatch === player.id;
+        const ratingBadge = this.state.matchEnded && rating && !isPotm
+            ? `<span class="player-rating-badge ${rating >= 8 ? 'rating-high' : rating <= 4 ? 'rating-low' : ''}">${rating}</span>` 
+            : '';
+        
+        // Player of the Match star badge with rating inside
+        const potmBadge = isPotm ? `<span class="player-potm-badge">${rating || ''}</span>` : '';
+        
         card.innerHTML = `
             ${statsBadge}
             ${pinBadge}
+            ${ratingBadge}
+            ${potmBadge}
             <span class="player-name">${player.name}</span>
             <span class="player-minutes">${minuteLabel}</span>
         `;
