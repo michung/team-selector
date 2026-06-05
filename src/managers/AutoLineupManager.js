@@ -192,8 +192,13 @@ export class AutoLineupManager {
             .filter(p => !pitchIds.has(p.id))
             .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
         
-        // Determine sub limit
-        const subsLimit = this.settings.subsPerInterval;
+        // Determine sub limit - if subsPerInterval is 0, auto-calculate optimal subs
+        let subsLimit = this.settings.subsPerInterval;
+        if (subsLimit === 0 && onBench.length > 0) {
+            // Auto-calculate: to give equal time, we need enough subs to rotate all players
+            // Formula: bench_size subs per interval ensures everyone rotates through
+            subsLimit = onBench.length;
+        }
         let subsRemaining = Math.min(subsLimit, onBench.length);
         
         // Track which slots have been swapped (can't swap same slot twice)

@@ -73,6 +73,10 @@ export class TeamSelector {
         this.drag.setupDropZones();
         this.setupSwipeGestures();
         this.setupSwipeToSwitchMode();
+        
+        // Sync stepper displays with actual settings values
+        this.syncStepperDisplays();
+        
         this.renderIntervalTabs();
         this.renderPitch();
         this.renderBench();
@@ -96,6 +100,18 @@ export class TeamSelector {
         // Listen for hash changes (shared URL pasted in same tab)
         window.addEventListener('hashchange', () => this.handleURLChange());
         window.addEventListener('popstate', () => this.handleURLChange());
+    }
+
+    /**
+     * Sync stepper displays with actual settings values
+     */
+    syncStepperDisplays() {
+        if (this.elements.intervalCount) {
+            this.elements.intervalCount.textContent = this.settings.intervalCount;
+        }
+        if (this.elements.subsCount) {
+            this.elements.subsCount.textContent = this.settings.subsPerInterval;
+        }
     }
 
     /**
