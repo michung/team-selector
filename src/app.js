@@ -553,7 +553,8 @@ export class TeamSelector {
      */
     updateExportButtonVisibility() {
         if (this.elements.pitchEndgameActions) {
-            this.elements.pitchEndgameActions.style.display = this.state.matchEnded ? 'flex' : 'none';
+            const showEndgame = this.state.matchEnded && this.state.mode === 'live';
+            this.elements.pitchEndgameActions.style.display = showEndgame ? 'flex' : 'none';
         }
     }
 
@@ -768,7 +769,8 @@ export class TeamSelector {
             this.updateIntervalCount(newCount);
         });
         document.getElementById('interval-inc').addEventListener('click', () => {
-            const newCount = Math.min(CONFIG.INTERVAL_LIMITS.MAX, this.settings.intervalCount + 1);
+            const maxIntervals = Math.floor(this.settings.matchDuration / 10);
+            const newCount = Math.min(maxIntervals, this.settings.intervalCount + 1);
             this.updateIntervalCount(newCount);
         });
 
@@ -832,6 +834,11 @@ export class TeamSelector {
             matchDurationInput.addEventListener('input', (e) => {
                 const newDuration = parseInt(e.target.value) || 10;
                 this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
+                // Cap interval count to new max
+                const maxIntervals = Math.floor(this.settings.matchDuration / 10);
+                if (this.settings.intervalCount > maxIntervals) {
+                    this.updateIntervalCount(maxIntervals);
+                }
                 this.renderIntervalTabs();
                 this.renderPitch();
                 this.renderBench();
@@ -843,6 +850,11 @@ export class TeamSelector {
                 const newDuration = parseInt(e.target.value) || 10;
                 this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
                 matchDurationInput.value = this.settings.matchDuration;
+                // Cap interval count to new max
+                const maxIntervals = Math.floor(this.settings.matchDuration / 10);
+                if (this.settings.intervalCount > maxIntervals) {
+                    this.updateIntervalCount(maxIntervals);
+                }
                 this.renderIntervalTabs();
                 this.renderPitch();
                 this.renderBench();
@@ -1119,6 +1131,7 @@ export class TeamSelector {
         this.drag.clearBenchSelection();
         this.renderPitch();
         this.renderBench();
+        this.updateExportButtonVisibility();
         
         if (mode === MODES.LIVE) {
             this.events.renderMatchEvents();
