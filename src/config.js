@@ -58,8 +58,11 @@ export const DEFAULT_STATE = {
     goalHistory: [],
     matchEvents: [],
     speedMultiplier: 1,
-    playerRatings: {},
-    playerOfTheMatch: null
+    managerRatings: {},
+    assistantRatings: {},
+    managerPotm: null,
+    assistantPotm: null,
+    currentRater: 'manager'
 };
 
 export const DEFAULT_SETTINGS = {

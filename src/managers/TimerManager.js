@@ -232,11 +232,6 @@ export class TimerManager {
         // Show export stats button and rate button
         this.app.updateExportButtonVisibility();
         
-        // Auto-show rating picker after a brief delay
-        setTimeout(() => {
-            this.app.showRatingPicker();
-        }, 1500);
-        
         this.app.saveState();
     }
 

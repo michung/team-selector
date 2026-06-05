@@ -110,7 +110,7 @@ export class EventManager {
         });
 
         // Track goal for player
-        let scorerName = team === 'them' ? 'Opponent' : 'Unknown';
+        let scorerName = team === 'them' ? 'Opponent' : (playerId ? 'Unknown' : 'Own Goal');
         if (playerId) {
             const player = this.app.getPlayerById(playerId);
             if (player) {

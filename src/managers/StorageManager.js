@@ -35,6 +35,9 @@ export class StorageManager {
                 
                 // Migrate: decode any URL-encoded player names
                 this.migratePlayerNames(state);
+                
+                // Migrate: old single ratings to manager ratings
+                this.migrateRatings(state);
             }
         } catch (e) {
             console.warn('Failed to load saved state, using defaults:', e);
@@ -103,5 +106,32 @@ export class StorageManager {
                 }
             }
         });
+    }
+
+    /**
+     * Migrate: old single playerRatings to manager ratings
+     * @param {object} state 
+     */
+    migrateRatings(state) {
+        // Migrate old playerRatings to managerRatings
+        if (state.playerRatings && Object.keys(state.playerRatings).length > 0) {
+            if (!state.managerRatings || Object.keys(state.managerRatings).length === 0) {
+                state.managerRatings = { ...state.playerRatings };
+            }
+            delete state.playerRatings;
+        }
+        
+        // Migrate old playerOfTheMatch to managerPotm
+        if (state.playerOfTheMatch) {
+            if (!state.managerPotm) {
+                state.managerPotm = state.playerOfTheMatch;
+            }
+            delete state.playerOfTheMatch;
+        }
+        
+        // Ensure new fields exist
+        if (!state.managerRatings) state.managerRatings = {};
+        if (!state.assistantRatings) state.assistantRatings = {};
+        if (!state.currentRater) state.currentRater = 'manager';
     }
 }

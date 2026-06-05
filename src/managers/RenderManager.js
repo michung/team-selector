@@ -221,15 +221,27 @@ export class RenderManager {
             && this.app.isPositionPinned(this.state.selectedPlanInterval, slotIndex);
         const pinBadge = isPinned ? '<span class="pin-badge">📌</span>' : '';
         
-        // Player rating badge (only show if match ended and rating exists, but NOT for POTM)
-        const rating = this.state.playerRatings?.[player.id];
-        const isPotm = this.state.matchEnded && this.state.playerOfTheMatch === player.id;
-        const ratingBadge = this.state.matchEnded && rating && !isPotm
-            ? `<span class="player-rating-badge ${rating >= 8 ? 'rating-high' : rating <= 4 ? 'rating-low' : ''}">${rating}</span>` 
+        // Player rating badge (average of both raters, only show if match ended AND in live mode AND both ratings exist)
+        const showRatings = this.state.matchEnded && this.state.mode === 'live';
+        const managerRating = this.state.managerRatings?.[player.id];
+        const assistantRating = this.state.assistantRatings?.[player.id];
+        const hasBothRatings = managerRating !== undefined && assistantRating !== undefined;
+        
+        // Calculate average (only when both exist)
+        let avgRating = null;
+        if (hasBothRatings) {
+            avgRating = ((managerRating + assistantRating) / 2).toFixed(1);
+        }
+        
+        // POTM: only show manager's selection
+        const isPotm = showRatings && this.state.managerPotm === player.id;
+        
+        const ratingBadge = showRatings && hasBothRatings && !isPotm
+            ? `<span class="player-rating-badge ${avgRating >= 8 ? 'rating-high' : avgRating <= 4 ? 'rating-low' : ''}">${avgRating}</span>` 
             : '';
         
         // Player of the Match star badge with rating inside
-        const potmBadge = isPotm ? `<span class="player-potm-badge">${rating || ''}</span>` : '';
+        const potmBadge = isPotm ? `<span class="player-potm-badge">${avgRating || ''}</span>` : '';
         
         card.innerHTML = `
             ${statsBadge}

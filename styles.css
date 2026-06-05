@@ -149,6 +149,15 @@ header h1 {
     background: #d4ac0d;
 }
 
+.btn-success {
+    background: var(--success);
+    color: var(--white);
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #1e8449;
+}
+
 .btn-small {
     padding: 8px 12px;
     font-size: 0.8rem;
@@ -658,6 +667,24 @@ header h1 {
     margin-top: 18px;
 }
 
+.score-us-tap {
+    position: relative;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 10px;
+    transition: background 0.2s;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.score-us-tap:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.score-us-tap:active {
+    background: rgba(46, 204, 113, 0.3);
+}
+
 .score-them-tap {
     position: relative;
     cursor: pointer;
@@ -982,14 +1009,14 @@ header h1 {
 /* Player of the Match star badge with rating */
 .player-potm-badge {
     position: absolute;
-    top: -6px;
-    left: -6px;
-    width: 24px;
-    height: 24px;
+    top: -8px;
+    left: -8px;
+    width: 30px;
+    height: 30px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.6rem;
+    font-size: 0.55rem;
     font-weight: bold;
     color: #1a1a2e;
     z-index: 6;
@@ -998,7 +1025,7 @@ header h1 {
 .player-potm-badge::before {
     content: '⭐';
     position: absolute;
-    font-size: 22px;
+    font-size: 28px;
     z-index: -1;
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
 }
@@ -2299,10 +2326,40 @@ header h1 {
 }
 
 .rating-content h3 {
-    margin: 0 0 5px 0;
+    margin: 0 0 10px 0;
     color: var(--white);
     text-align: center;
     font-size: 1.3rem;
+}
+
+.rating-role-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    justify-content: center;
+}
+
+.rating-role-btn {
+    flex: 1;
+    padding: 10px 12px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.rating-role-btn.active {
+    border-color: var(--primary);
+    background: rgba(52, 152, 219, 0.2);
+    color: var(--white);
+}
+
+.rating-role-btn:hover:not(.active) {
+    border-color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.8);
 }
 
 .rating-subtitle {
@@ -2438,6 +2495,19 @@ header h1 {
 
 .rating-value.rating-low {
     color: var(--danger);
+}
+
+.other-rating {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: 2px;
+}
+
+.avg-rating {
+    font-size: 0.65rem;
+    color: var(--primary);
+    margin-left: 4px;
+    font-weight: 600;
 }
 
 .rating-actions {
