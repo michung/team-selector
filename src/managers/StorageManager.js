@@ -32,6 +32,9 @@ export class StorageManager {
                 
                 // Migrate: add preferredPositions to players if missing
                 this.migratePlayerPositions(state);
+                
+                // Migrate: decode any URL-encoded player names
+                this.migratePlayerNames(state);
             }
         } catch (e) {
             console.warn('Failed to load saved state, using defaults:', e);
@@ -81,6 +84,22 @@ export class StorageManager {
                     p.preferredPositions = [idx];
                 } else {
                     p.preferredPositions = [];
+                }
+            }
+        });
+    }
+
+    /**
+     * Migrate: decode any URL-encoded player names (e.g., "Alfie%20B" -> "Alfie B")
+     * @param {object} state 
+     */
+    migratePlayerNames(state) {
+        state.players.forEach(p => {
+            if (p.name && p.name.includes('%')) {
+                try {
+                    p.name = decodeURIComponent(p.name);
+                } catch (e) {
+                    // If decode fails, keep original name
                 }
             }
         });

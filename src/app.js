@@ -141,6 +141,7 @@ export class TeamSelector {
                 
                 // Re-render everything with imported data
                 this.initializeIntervalLineups();
+                this.syncStepperDisplays();
                 this.renderIntervalTabs();
                 this.renderPitch();
                 this.renderBench();
@@ -1289,12 +1290,19 @@ export class TeamSelector {
         const json = decodeURIComponent(escape(atob(base64)));
         const data = JSON.parse(json);
         
-        const players = data.p.map((name, idx) => ({
-            id: idx + 1,
-            name: name,
-            number: data.n[idx] || idx + 1,
-            minutesPlayed: 0
-        }));
+        const players = data.p.map((name, idx) => {
+            // Decode any URL-encoded names (e.g., "Alfie%20B" -> "Alfie B")
+            let decodedName = name;
+            if (name && name.includes('%')) {
+                try { decodedName = decodeURIComponent(name); } catch(e) {}
+            }
+            return {
+                id: idx + 1,
+                name: decodedName,
+                number: data.n[idx] || idx + 1,
+                minutesPlayed: 0
+            };
+        });
         
         const intervalLineups = {};
         data.l.forEach((indices, intervalIdx) => {
