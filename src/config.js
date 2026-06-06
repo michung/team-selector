@@ -73,7 +73,7 @@ export const DEFAULT_SETTINGS = {
     subsPerInterval: 0,  // 0 to max bench size
     opponentName: '',
     matchDate: '',
-    isHome: true,
+    venue: 'home',  // 'home', 'away', or 'neutral'
     debugMode: false
 };
 

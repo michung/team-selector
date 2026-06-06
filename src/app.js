@@ -148,7 +148,7 @@ export class TeamSelector {
                 this.settings.intervalCount = sharedPlan.intervalCount;
                 if (sharedPlan.opponentName) this.settings.opponentName = sharedPlan.opponentName;
                 if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
-                if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
+                if (sharedPlan.venue) this.settings.venue = sharedPlan.venue;
                 if (sharedPlan.subsPerInterval !== undefined) this.settings.subsPerInterval = sharedPlan.subsPerInterval;
                 
                 // Clear URL
@@ -241,7 +241,7 @@ export class TeamSelector {
                 this.settings.intervalCount = sharedPlan.intervalCount;
                 if (sharedPlan.opponentName) this.settings.opponentName = sharedPlan.opponentName;
                 if (sharedPlan.matchDate) this.settings.matchDate = sharedPlan.matchDate;
-                if (sharedPlan.isHome !== undefined) this.settings.isHome = sharedPlan.isHome;
+                if (sharedPlan.venue) this.settings.venue = sharedPlan.venue;
                 if (sharedPlan.subsPerInterval !== undefined) this.settings.subsPerInterval = sharedPlan.subsPerInterval;
                 // Clear URL params/hash so refreshing doesn't re-import
                 history.replaceState(null, '', window.location.pathname);
@@ -383,7 +383,7 @@ export class TeamSelector {
         if (this.settings.opponentName) {
             lines.push(`Opponent,${this.settings.opponentName}`);
         }
-        lines.push(`Venue,${this.settings.isHome ? 'Home' : 'Away'}`);
+        lines.push(`Venue,${this.settings.venue === 'away' ? 'Away' : this.settings.venue === 'neutral' ? 'Neutral' : 'Home'}`);
         if (this.settings.matchDate) {
             lines.push(`Date,${this.settings.matchDate}`);
         }
@@ -498,7 +498,8 @@ export class TeamSelector {
         const titleEl = document.getElementById('app-title');
         if (titleEl) {
             if (this.settings.opponentName) {
-                const venue = this.settings.isHome ? '(H)' : '(A)';
+                const venueMap = { home: '(H)', away: '(A)', neutral: '(N)' };
+                const venue = venueMap[this.settings.venue] || '(H)';
                 titleEl.textContent = `⚽ vs ${this.settings.opponentName} ${venue}`;
             } else {
                 titleEl.textContent = '⚽ Team Selector';
@@ -693,6 +694,7 @@ export class TeamSelector {
         // Debug mode toggle
         document.getElementById('debug-toggle')?.addEventListener('change', (e) => {
             this.settings.debugMode = e.target.checked;
+            this.elements.currentTime?.classList.toggle('debug-clickable', e.target.checked);
             this.saveState();
             if (!e.target.checked) {
                 // Reset speed to 1x when disabling debug
@@ -827,16 +829,20 @@ export class TeamSelector {
             });
         }
         
-        // Venue toggle (home/away)
+        // Venue toggle (home/away/neutral)
         const venueToggle = document.getElementById('venue-toggle');
         if (venueToggle) {
+            // Migrate old isHome boolean to venue string
+            if (this.settings.isHome !== undefined && this.settings.venue === undefined) {
+                this.settings.venue = this.settings.isHome ? 'home' : 'away';
+                delete this.settings.isHome;
+            }
             // Set initial state
             const venueButtons = venueToggle.querySelectorAll('.venue-btn');
             venueButtons.forEach(btn => {
-                const isHome = btn.dataset.venue === 'home';
-                btn.classList.toggle('active', isHome === this.settings.isHome);
+                btn.classList.toggle('active', btn.dataset.venue === (this.settings.venue || 'home'));
                 btn.addEventListener('click', () => {
-                    this.settings.isHome = btn.dataset.venue === 'home';
+                    this.settings.venue = btn.dataset.venue;
                     venueButtons.forEach(b => b.classList.toggle('active', b === btn));
                     this.updateTitle();
                     this.saveState();
@@ -1196,7 +1202,7 @@ export class TeamSelector {
             i: this.settings.intervalCount,         // intervals
             o: this.settings.opponentName || '',    // opponent
             t: this.settings.matchDate || '',       // date
-            h: this.settings.isHome ? 1 : 0,        // home/away
+            h: this.settings.venue === 'away' ? 0 : this.settings.venue === 'neutral' ? 2 : 1,  // venue: 0=away, 1=home, 2=neutral
             s: this.settings.subsPerInterval        // subs per interval
         };
         
@@ -1270,7 +1276,7 @@ export class TeamSelector {
             intervalLineups,
             opponentName: data.o || '',
             matchDate: data.t || '',
-            isHome: data.h !== 0,
+            venue: data.h === 0 ? 'away' : data.h === 2 ? 'neutral' : 'home',
             subsPerInterval: data.s !== undefined ? data.s : 0
         };
     }
@@ -1314,7 +1320,7 @@ export class TeamSelector {
             try { opponentName = decodeURIComponent(opponentName); } catch(e) {}
         }
         const matchDate = params.t || '';
-        const isHome = params.h !== '0';  // Default to home if not specified
+        const venue = params.h === '0' ? 'away' : params.h === '2' ? 'neutral' : 'home';  // Default to home if not specified
         const subsPerInterval = params.s !== undefined ? parseInt(params.s) : 0;
         
         const intervalLineups = {};
@@ -1335,7 +1341,7 @@ export class TeamSelector {
             intervalLineups[intervalIdx + 1] = lineup;
         });
         
-        return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, isHome, subsPerInterval };
+        return { players, matchDuration, intervalCount, intervalLineups, opponentName, matchDate, venue, subsPerInterval };
     }
 
     // ==================== RENDERING ====================

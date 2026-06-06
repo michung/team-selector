@@ -89,6 +89,14 @@ header h1 {
     user-select: none;
 }
 
+#current-time.debug-clickable {
+    cursor: pointer;
+}
+
+#current-time.debug-clickable:hover {
+    opacity: 0.8;
+}
+
 #current-time.overtime {
     color: var(--danger);
 }
@@ -199,64 +207,104 @@ header h1 {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
+}
+
+.setting-row:last-child {
+    margin-bottom: 0;
 }
 
 .setting-row label {
     font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.85);
 }
 
 .setting-row input {
     width: 80px;
-    padding: 8px;
+    padding: 10px 12px;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.1);
     color: var(--white);
     text-align: center;
     font-size: 1rem;
 }
 
+.setting-row input:focus {
+    outline: none;
+    background: rgba(255, 255, 255, 0.15);
+}
+
 .setting-row input#opponent-name {
     width: 160px;
     text-align: left;
-    padding-left: 12px;
 }
 
-.setting-row input#match-date {
-    width: 160px;
+/* Settings sections */
+.settings-section {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
 }
 
-.version-row {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+.settings-section-header {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 14px;
+    font-weight: 600;
+}
+
+/* Duration with unit */
+.duration-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.duration-unit {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.85rem;
+}
+
+/* Settings footer */
+.settings-footer {
+    margin-top: 8px;
+    padding: 12px 4px 0;
+}
+
+.settings-footer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .version-label {
-    color: #8b949e;
-    font-size: 12px;
-}
-
-.version-value {
     color: #6e7681;
-    font-size: 12px;
+    font-size: 11px;
     font-family: monospace;
 }
 
-.debug-row {
-    margin-top: 8px;
+.debug-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #6e7681;
+    font-size: 11px;
+    cursor: pointer;
 }
 
-.debug-row label {
-    color: #8b949e;
-    font-size: 12px;
+.debug-toggle-label span {
+    user-select: none;
 }
 
 .debug-checkbox {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     cursor: pointer;
+    accent-color: var(--primary);
 }
 
 .date-display-wrapper {
@@ -267,12 +315,12 @@ header h1 {
 .date-display {
     display: block;
     width: 100%;
-    padding: 8px 12px;
+    padding: 10px 12px;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.1);
     color: var(--white);
-    font-size: 1rem;
+    font-size: 0.95rem;
     cursor: pointer;
     text-align: center;
 }
@@ -292,22 +340,28 @@ header h1 {
     gap: 0;
     border-radius: 8px;
     overflow: hidden;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .venue-btn {
-    padding: 10px 20px;
+    padding: 8px 14px;
     border: none;
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.5);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
-    min-width: 70px;
+    min-width: 38px;
 }
 
 .venue-btn:first-child {
     border-radius: 6px 0 0 6px;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.venue-btn:not(:first-child):not(:last-child) {
+    border-radius: 0;
     border-right: 1px solid rgba(255, 255, 255, 0.2);
 }
 
@@ -331,7 +385,11 @@ header h1 {
     flex-wrap: wrap;
 }
 
-.settings-content,
+.settings-content {
+    margin-top: 12px;
+    padding-top: 0;
+}
+
 .squad-content {
     margin-top: 15px;
     padding-top: 15px;
