@@ -6,74 +6,8 @@ import { EventManager } from './managers/EventManager.js';
 import { RenderManager } from './managers/RenderManager.js';
 import { DragManager } from './managers/DragManager.js';
 import { AutoLineupManager } from './managers/AutoLineupManager.js';
-
-/**
- * LZ-based string compression for URL sharing
- * Compresses JSON strings to shorter URL-safe base64
- */
-const LZString = {
-    _keyStr: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
-    
-    compress: function(input) {
-        if (input == null || input.length === 0) return "";
-        const dict = new Map();
-        const data = (input + "").split("");
-        let out = [], phrase = data[0], code = 256;
-        for (let i = 1; i < data.length; i++) {
-            const currChar = data[i];
-            if (dict.has(phrase + currChar)) {
-                phrase += currChar;
-            } else {
-                out.push(phrase.length > 1 ? dict.get(phrase) : phrase.charCodeAt(0));
-                dict.set(phrase + currChar, code++);
-                phrase = currChar;
-            }
-        }
-        out.push(phrase.length > 1 ? dict.get(phrase) : phrase.charCodeAt(0));
-        
-        // Convert to URL-safe base64
-        let result = "";
-        for (let i = 0; i < out.length; i++) {
-            const val = out[i];
-            result += this._keyStr.charAt((val >> 12) & 0x3F);
-            result += this._keyStr.charAt((val >> 6) & 0x3F);
-            result += this._keyStr.charAt(val & 0x3F);
-        }
-        return result;
-    },
-    
-    decompress: function(input) {
-        if (input == null || input.length === 0) return null;
-        
-        // Decode from URL-safe base64
-        const data = [];
-        for (let i = 0; i < input.length; i += 3) {
-            const a = this._keyStr.indexOf(input.charAt(i));
-            const b = this._keyStr.indexOf(input.charAt(i + 1));
-            const c = this._keyStr.indexOf(input.charAt(i + 2));
-            if (a < 0 || b < 0 || c < 0) return null;
-            data.push((a << 12) | (b << 6) | c);
-        }
-        
-        if (data.length === 0) return null;
-        const dict = new Map();
-        let currChar = String.fromCharCode(data[0]), oldPhrase = currChar, out = [currChar], code = 256;
-        for (let i = 1; i < data.length; i++) {
-            const currCode = data[i];
-            let phrase;
-            if (currCode < 256) {
-                phrase = String.fromCharCode(currCode);
-            } else {
-                phrase = dict.has(currCode) ? dict.get(currCode) : (oldPhrase + currChar);
-            }
-            out.push(phrase);
-            currChar = phrase.charAt(0);
-            dict.set(code++, oldPhrase + currChar);
-            oldPhrase = phrase;
-        }
-        return out.join("");
-    }
-};
+import { RatingManager } from './managers/RatingManager.js';
+import { LZString } from './utils/LZString.js';
 
 /**
  * Main Team Selector Application
@@ -96,6 +30,7 @@ export class TeamSelector {
         this.renderer = new RenderManager(this);
         this.drag = new DragManager(this);
         this.autoLineup = new AutoLineupManager(this);
+        this.ratings = new RatingManager(this);
 
         // Slot fill order for auto-placement
         this.slotFillOrder = SLOT_FILL_ORDER;
@@ -143,7 +78,7 @@ export class TeamSelector {
         this.setupSwipeToSwitchMode();
         
         // Check for ratings import via URL
-        const ratingsImported = this.importRatingsFromUrl();
+        const ratingsImported = this.ratings.importFromUrl();
         
         // Sync stepper displays with actual settings values
         this.syncStepperDisplays();
@@ -427,269 +362,6 @@ export class TeamSelector {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const month = months[date.getMonth()];
         return `${day} ${month}`;
-    }
-
-    /**
-     * Show the player rating picker overlay
-     */
-    showRatingPicker() {
-        const container = this.elements.ratingPlayers;
-        if (!container) return;
-        
-        // Get current rater's data
-        const currentRater = this.state.currentRater || 'manager';
-        const ratingsKey = currentRater === 'manager' ? 'managerRatings' : 'assistantRatings';
-        const potmKey = currentRater === 'manager' ? 'managerPotm' : 'assistantPotm';
-        
-        // Initialize default ratings of 6 for all players who don't have a rating yet
-        this.state.players.forEach(player => {
-            if (this.state[ratingsKey][player.id] === undefined) {
-                this.state[ratingsKey][player.id] = 6;
-            }
-        });
-        
-        // Update role toggle buttons
-        document.querySelectorAll('.rating-role-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.role === currentRater);
-        });
-        
-        container.innerHTML = '';
-        
-        // Get all players, sorted by minutes played (descending) - players who played first, then unused subs
-        const allPlayers = [...this.state.players]
-            .sort((a, b) => (b.minutesPlayed || 0) - (a.minutesPlayed || 0));
-        
-        allPlayers.forEach(player => {
-            const currentRating = this.state[ratingsKey][player.id];
-            const isPotm = currentRater === 'manager' && this.state[potmKey] === player.id;
-            
-            const row = document.createElement('div');
-            row.className = `rating-player-row${isPotm ? ' potm-selected' : ''}`;
-            row.dataset.playerId = player.id;
-            
-            // Stats: minutes always shown, goals/assists as text
-            const minutes = Math.floor(player.minutesPlayed || 0);
-            const stats = [];
-            if (player.goals) stats.push(`${player.goals}G`);
-            if (player.assists) stats.push(`${player.assists}A`);
-            const statsText = `${minutes}' ${stats.join(' ')}`.trim();
-            
-            // Only show POTM star for manager
-            const potmStar = currentRater === 'manager' ? '<span class="rating-potm-star">⭐</span>' : '';
-            
-            row.innerHTML = `
-                ${potmStar}
-                <div class="rating-player-info">
-                    <span class="rating-player-number">${player.number}</span>
-                    <span class="rating-player-name">${player.name}</span>
-                    <span class="rating-player-stats">${statsText}</span>
-                </div>
-                <div class="rating-stepper">
-                    <button class="rating-stepper-btn" data-action="dec" ${currentRating <= 1 ? 'disabled' : ''}>−</button>
-                    <span class="rating-value ${currentRating >= 8 ? 'rating-high' : currentRating <= 4 ? 'rating-low' : ''}">${currentRating}</span>
-                    <button class="rating-stepper-btn" data-action="inc" ${currentRating >= 10 ? 'disabled' : ''}>+</button>
-                </div>
-            `;
-            
-            // Click row to select POTM (manager only)
-            if (currentRater === 'manager') {
-                row.addEventListener('click', (e) => {
-                    if (e.target.closest('.rating-stepper-btn')) return;
-                    
-                    // Toggle POTM selection
-                    const wasSelected = this.state[potmKey] === player.id;
-                    this.state[potmKey] = wasSelected ? null : player.id;
-                    
-                    // Update UI
-                    container.querySelectorAll('.rating-player-row').forEach(r => {
-                        r.classList.toggle('potm-selected', r.dataset.playerId === String(this.state[potmKey]));
-                    });
-                });
-            }
-            
-            // Stepper buttons
-            row.querySelectorAll('.rating-stepper-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const action = btn.dataset.action;
-                    let rating = this.state[ratingsKey][player.id] || 6;
-                    
-                    if (action === 'inc' && rating < 10) rating++;
-                    if (action === 'dec' && rating > 1) rating--;
-                    
-                    this.state[ratingsKey][player.id] = rating;
-                    
-                    // Update display
-                    const valueEl = row.querySelector('.rating-value');
-                    valueEl.textContent = rating;
-                    valueEl.className = `rating-value ${rating >= 8 ? 'rating-high' : rating <= 4 ? 'rating-low' : ''}`;
-                    
-                    // Update button states
-                    row.querySelector('[data-action="dec"]').disabled = rating <= 1;
-                    row.querySelector('[data-action="inc"]').disabled = rating >= 10;
-                });
-            });
-            
-            container.appendChild(row);
-        });
-        
-        this.elements.ratingPicker.style.display = 'flex';
-    }
-
-    /**
-     * Switch rating role (manager/assistant)
-     */
-    switchRatingRole(role) {
-        this.state.currentRater = role;
-        this.showRatingPicker(); // Re-render with new role's data
-    }
-
-    /**
-     * Hide the rating picker
-     */
-    hideRatingPicker() {
-        this.elements.ratingPicker.style.display = 'none';
-    }
-
-    /**
-     * Save ratings and close picker
-     */
-    saveRatings() {
-        this.saveState();
-        this.hideRatingPicker();
-        // Re-render to show rating badges on player cards
-        this.renderPitch();
-        this.renderBench();
-        const role = this.state.currentRater === 'assistant' ? 'Assistant' : 'Manager';
-        this.showToast(`${role} ratings saved!`, 'success');
-    }
-
-    /**
-     * Share current rater's ratings via URL
-     */
-    /**
-     * Generate ratings URL for a specific rater
-     */
-    generateRatingsUrl(rater = 'manager') {
-        const ratingsKey = rater === 'manager' ? 'managerRatings' : 'assistantRatings';
-        const potmKey = rater === 'manager' ? 'managerPotm' : 'assistantPotm';
-        
-        // Build compact player stats (only include non-zero values)
-        const playerStats = this.state.players.map(p => {
-            const stats = { id: p.id };
-            if (p.minutesPlayed) stats.m = Math.floor(p.minutesPlayed);
-            if (p.goals) stats.g = p.goals;
-            if (p.assists) stats.a = p.assists;
-            if (p.startedGame) stats.s = 1;
-            return stats;
-        }).filter(s => s.m || s.g || s.a || s.s);
-        
-        const data = {
-            r: rater === 'manager' ? 'm' : 'a',
-            ratings: this.state[ratingsKey],
-            potm: this.state[potmKey],
-            // Match data
-            scoreUs: this.state.scoreUs,
-            scoreThem: this.state.scoreThem,
-            events: this.state.matchEvents,
-            players: playerStats
-        };
-        
-        const json = JSON.stringify(data);
-        const encoded = LZString.compress(json);
-        
-        return `${window.location.origin}${window.location.pathname}?ratings=${encodeURIComponent(encoded)}`;
-    }
-
-    shareRatings() {
-        const currentRater = this.state.currentRater || 'manager';
-        const url = this.generateRatingsUrl(currentRater);
-        
-        navigator.clipboard.writeText(url).then(() => {
-            const role = currentRater === 'assistant' ? 'Assistant' : 'Manager';
-            this.showToast(`${role} ratings link copied!`, 'success');
-        }).catch(err => {
-            console.error('Failed to copy:', err);
-            this.showToast('Failed to copy link');
-        });
-    }
-
-    /**
-     * Import ratings from URL parameter
-     */
-    importRatingsFromUrl() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const ratingsParam = urlParams.get('ratings');
-        
-        if (!ratingsParam) return false;
-        
-        try {
-            // Try LZ decompress first, fall back to base64 for old links
-            let json = LZString.decompress(ratingsParam);
-            if (!json) {
-                let base64 = ratingsParam.replace(/-/g, '+').replace(/_/g, '/');
-                while (base64.length % 4) base64 += '=';
-                json = decodeURIComponent(escape(atob(base64)));
-            }
-            const data = JSON.parse(json);
-            
-            const isManager = data.r === 'm';
-            const ratingsKey = isManager ? 'managerRatings' : 'assistantRatings';
-            const potmKey = isManager ? 'managerPotm' : 'assistantPotm';
-            
-            // Import the other rater's ratings
-            this.state[ratingsKey] = data.ratings || {};
-            this.state[potmKey] = data.potm || null;
-            
-            // Import match data if present
-            if (data.scoreUs !== undefined) this.state.scoreUs = data.scoreUs;
-            if (data.scoreThem !== undefined) this.state.scoreThem = data.scoreThem;
-            if (data.events) this.state.matchEvents = data.events;
-            
-            // Import player stats
-            if (data.players) {
-                for (const ps of data.players) {
-                    const player = this.getPlayerById(ps.id);
-                    if (player) {
-                        if (ps.m) player.minutesPlayed = ps.m;
-                        if (ps.g) player.goals = ps.g;
-                        if (ps.a) player.assists = ps.a;
-                        if (ps.s) player.startedGame = true;
-                    }
-                }
-            }
-            
-            // Mark match as ended so ratings display
-            this.state.matchEnded = true;
-            
-            // Disable match control buttons since match data was imported
-            this.elements.playPauseBtn.disabled = true;
-            this.elements.playPauseBtn.textContent = '✓';
-            this.elements.stopBtn.disabled = true;
-            
-            // Switch to the other role for the current user to rate
-            this.state.currentRater = isManager ? 'assistant' : 'manager';
-            
-            // Clear URL params
-            history.replaceState(null, '', window.location.pathname);
-            
-            const role = isManager ? 'Manager' : 'Assistant';
-            this.showToast(`${role} ratings imported!`, 'success');
-            this.saveState();
-            
-            // Refresh UI to show imported data
-            this.updateScoreDisplay();
-            this.renderStats();
-            this.events.renderMatchEvents();
-            this.renderPitch();
-            this.renderBench();
-            this.updateExportButtonVisibility();
-            
-            return true;
-        } catch (e) {
-            console.error('Failed to import ratings:', e);
-            return false;
-        }
     }
 
     /**
@@ -1013,13 +685,13 @@ export class TeamSelector {
         document.getElementById('no-assist-btn').addEventListener('click', () => this.skipAssist());
 
         // Rating picker controls
-        this.elements.ratingSaveBtn?.addEventListener('click', () => this.saveRatings());
-        this.elements.ratingCancelBtn?.addEventListener('click', () => this.hideRatingPicker());
-        this.elements.ratingShareBtn?.addEventListener('click', () => this.shareRatings());
+        this.elements.ratingSaveBtn?.addEventListener('click', () => this.ratings.save());
+        this.elements.ratingCancelBtn?.addEventListener('click', () => this.ratings.hide());
+        this.elements.ratingShareBtn?.addEventListener('click', () => this.ratings.share());
         
         // Rating role toggle buttons
         document.querySelectorAll('.rating-role-btn').forEach(btn => {
-            btn.addEventListener('click', () => this.switchRatingRole(btn.dataset.role));
+            btn.addEventListener('click', () => this.ratings.switchRole(btn.dataset.role));
         });
 
         // Interval count steppers
@@ -1174,7 +846,7 @@ export class TeamSelector {
         this.elements.exportStatsBtn?.addEventListener('click', () => this.exportStats());
         
         // Rate players button
-        this.elements.ratePlayersBtn?.addEventListener('click', () => this.showRatingPicker());
+        this.elements.ratePlayersBtn?.addEventListener('click', () => this.ratings.show());
         
         // Share plan button
         this.elements.sharePlanBtn?.addEventListener('click', () => this.sharePlan());

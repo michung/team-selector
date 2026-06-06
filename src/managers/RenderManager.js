@@ -143,7 +143,7 @@ export class RenderManager {
             
             tab.addEventListener('click', () => this.app.selectInterval(i));
             
-            // Drag to copy lineup
+            // Drag to copy lineup (desktop)
             tab.addEventListener('dragstart', (e) => {
                 e.dataTransfer.setData('interval', i.toString());
                 tab.classList.add('dragging');
@@ -169,6 +169,56 @@ export class RenderManager {
                 if (sourceInterval && sourceInterval !== i) {
                     this.app.copyLineup(sourceInterval, i);
                 }
+            });
+            
+            // Touch support for copying intervals (shorter hold = 300ms)
+            let touchTimer = null;
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let draggingInterval = null;
+            
+            tab.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchTimer = setTimeout(() => {
+                    draggingInterval = i;
+                    tab.classList.add('dragging');
+                    this.app.hapticFeedback([30]);
+                    this.app.showToast(`Drag to copy interval ${i}`, 'default', 1500);
+                }, 300); // Shorter than normal long press
+            }, { passive: true });
+            
+            tab.addEventListener('touchmove', (e) => {
+                const dx = Math.abs(e.touches[0].clientX - touchStartX);
+                const dy = Math.abs(e.touches[0].clientY - touchStartY);
+                if (dx > 5 || dy > 5) {
+                    clearTimeout(touchTimer);
+                }
+            }, { passive: true });
+            
+            tab.addEventListener('touchend', (e) => {
+                clearTimeout(touchTimer);
+                tab.classList.remove('dragging');
+                
+                if (draggingInterval !== null) {
+                    // Find which tab we're over
+                    const touch = e.changedTouches[0];
+                    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const targetTab = targetEl?.closest('.interval-tab');
+                    if (targetTab) {
+                        const targetInterval = parseInt(targetTab.dataset.interval);
+                        if (targetInterval && targetInterval !== draggingInterval) {
+                            this.app.copyLineup(draggingInterval, targetInterval);
+                        }
+                    }
+                    draggingInterval = null;
+                }
+            });
+            
+            tab.addEventListener('touchcancel', () => {
+                clearTimeout(touchTimer);
+                tab.classList.remove('dragging');
+                draggingInterval = null;
             });
             
             this.elements.intervalTabs.appendChild(tab);

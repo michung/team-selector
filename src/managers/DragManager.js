@@ -186,9 +186,11 @@ export class DragManager {
 
         // Touch events
         let touchStartTime = 0;
+        let anyMovement = false; // Track ANY movement to prevent false long press
         element.addEventListener('touchstart', (e) => {
             e.stopPropagation();
             touchMoved = false;
+            anyMovement = false;
             longPressTriggered = false;
             this.longPressJustTriggered = false;
             touchStartTime = Date.now();
@@ -204,8 +206,8 @@ export class DragManager {
             // - Not already dragging another player
             if (location === 'pitch' && !this.selectedBenchPlayer && !this.dragState.draggingPlayer) {
                 longPressTimer = setTimeout(() => {
-                    // Double-check we haven't started moving (touchMoved is set when drag threshold exceeded)
-                    if (!touchMoved) {
+                    // Double-check we haven't started moving
+                    if (!touchMoved && !anyMovement) {
                         longPressTriggered = true;
                         this.longPressJustTriggered = true;
                         this.longPressTimestamp = Date.now();
@@ -231,6 +233,7 @@ export class DragManager {
             
             // Cancel long press on ANY movement to prevent accidental goals while dragging
             if (dx > 3 || dy > 3) {
+                anyMovement = true;
                 cancelLongPress();
             }
             
@@ -249,12 +252,14 @@ export class DragManager {
             
             // Check elapsed time - if held long enough, treat as long press even if
             // timer callback hasn't fired yet (race condition at threshold boundary)
+            // BUT: Don't treat as long press if bench player is selected for swap
             const elapsed = Date.now() - touchStartTime;
             const wasLongPress = elapsed >= CONFIG.LONG_PRESS_MS - 50; // 50ms grace period
             
             // Check both local flag AND class-level flag (for re-render case)
             // Also check elapsed time to handle race condition
-            if (longPressTriggered || this.longPressJustTriggered || (wasLongPress && location === 'pitch')) {
+            // Skip long press handling if we're in a swap operation or if there was any movement
+            if (!this.selectedBenchPlayer && !anyMovement && (longPressTriggered || this.longPressJustTriggered || (wasLongPress && location === 'pitch'))) {
                 e.preventDefault();
                 e.stopPropagation();
                 // Use class property to reliably block click events
@@ -406,6 +411,25 @@ export class DragManager {
      * Handle drop on target
      */
     handleDrop(targetSlotIndex, targetLocation) {
+        // Special case: user has a bench player selected and drops on a pitch slot
+        // This handles the case where user taps (with slight movement) on pitch to swap
+        if (targetLocation === 'pitch' && this.selectedBenchPlayer && this.state.mode === MODES.PLAN) {
+            const lineup = [...this.app.getCurrentLineup()];
+            const pitchPlayerId = lineup[targetSlotIndex];
+            lineup[targetSlotIndex] = this.selectedBenchPlayer;
+            this.app.setCurrentLineup(lineup);
+            
+            const benchPlayer = this.app.getPlayerById(this.selectedBenchPlayer);
+            const pitchPlayer = pitchPlayerId ? this.app.getPlayerById(pitchPlayerId) : null;
+            this.app.showToast(`${benchPlayer?.name} ↔ ${pitchPlayer?.name || 'empty'}`);
+            
+            this.clearBenchSelection();
+            this.app.renderPitch();
+            this.app.renderBench();
+            this.renderStatsIfPlanMode();
+            return;
+        }
+        
         if (!this.dragState.draggingPlayer) return;
 
         const { draggingPlayer, sourceLocation, sourceSlot } = this.dragState;
