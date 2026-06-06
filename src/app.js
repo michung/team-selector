@@ -77,6 +77,10 @@ export class TeamSelector {
         this.setupSwipeGestures();
         this.setupSwipeToSwitchMode();
         
+        // Set version display
+        const versionEl = document.getElementById('app-version');
+        if (versionEl) versionEl.textContent = CONFIG.VERSION;
+        
         // Check for ratings import via URL
         const ratingsImported = this.ratings.importFromUrl();
         
@@ -117,6 +121,11 @@ export class TeamSelector {
         }
         if (this.elements.subsCount) {
             this.elements.subsCount.textContent = this.settings.subsPerInterval;
+        }
+        // Sync debug toggle
+        const debugToggle = document.getElementById('debug-toggle');
+        if (debugToggle) {
+            debugToggle.checked = this.settings.debugMode || false;
         }
     }
 
@@ -676,8 +685,20 @@ export class TeamSelector {
         this.elements.stopBtn.addEventListener('click', () => this.stopMatch());
         document.getElementById('reset-match').addEventListener('click', () => this.resetMatch());
         
-        // Debug: Click timer to toggle speed (1x/10x/20x)
-        this.elements.currentTime?.addEventListener('click', () => this.timer.toggleSpeed());
+        // Debug: Click timer to toggle speed (1x/10x/20x) - only when debug mode enabled
+        this.elements.currentTime?.addEventListener('click', () => {
+            if (this.settings.debugMode) this.timer.toggleSpeed();
+        });
+        
+        // Debug mode toggle
+        document.getElementById('debug-toggle')?.addEventListener('change', (e) => {
+            this.settings.debugMode = e.target.checked;
+            this.saveState();
+            if (!e.target.checked) {
+                // Reset speed to 1x when disabling debug
+                this.timer.resetSpeed();
+            }
+        });
 
         // Score controls
         document.getElementById('score-us-team').addEventListener('click', () => this.recordGoal(null, 'us'));

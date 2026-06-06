@@ -129,6 +129,7 @@ export class AutoLineupManager {
 
     /**
      * Build the first interval lineup from scratch
+     * Priority: 1) Players who prefer the position, 2) Flexible players (no prefs), 3) Specialists out of position
      */
     buildFirstInterval(pitchSize, gkId, availablePlayers, intervalsPlayed, locked) {
         const lineup = new Array(pitchSize).fill(null);
@@ -141,12 +142,13 @@ export class AutoLineupManager {
         
         const assignedThisInterval = new Set(lineup.filter(id => id !== null));
         
-        // Fill open slots with preferred position players (least time first)
+        // Get open slots (not locked)
         const openSlots = [];
         for (let slot = 1; slot < pitchSize; slot++) {
             if (!locked.has(slot)) openSlots.push(slot);
         }
         
+        // Pass 1: Fill slots with players who prefer them
         for (const slot of openSlots) {
             const candidates = availablePlayers
                 .filter(p => !assignedThisInterval.has(p.id) && p.preferredPositions?.includes(slot))
@@ -158,15 +160,27 @@ export class AutoLineupManager {
             }
         }
         
-        // Fill remaining empty slots
+        // Pass 2: Fill remaining slots with flexible players (no preferences = can play anywhere)
         for (const slot of openSlots) {
             if (lineup[slot] !== null) continue;
-            const unassigned = availablePlayers
+            const flexiblePlayers = availablePlayers
+                .filter(p => !assignedThisInterval.has(p.id) && (!p.preferredPositions || p.preferredPositions.length === 0))
+                .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
+            if (flexiblePlayers.length > 0) {
+                lineup[slot] = flexiblePlayers[0].id;
+                assignedThisInterval.add(flexiblePlayers[0].id);
+            }
+        }
+        
+        // Pass 3: Last resort - fill with any remaining player (specialists out of position)
+        for (const slot of openSlots) {
+            if (lineup[slot] !== null) continue;
+            const remaining = availablePlayers
                 .filter(p => !assignedThisInterval.has(p.id))
                 .sort((a, b) => intervalsPlayed[a.id] - intervalsPlayed[b.id] || Math.random() - 0.5);
-            if (unassigned.length > 0) {
-                lineup[slot] = unassigned[0].id;
-                assignedThisInterval.add(unassigned[0].id);
+            if (remaining.length > 0) {
+                lineup[slot] = remaining[0].id;
+                assignedThisInterval.add(remaining[0].id);
             }
         }
         

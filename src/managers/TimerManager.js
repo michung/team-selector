@@ -288,6 +288,16 @@ export class TimerManager {
     }
 
     /**
+     * Reset speed to 1x
+     */
+    resetSpeed() {
+        if (this.state.speedMultiplier !== 1) {
+            this.state.speedMultiplier = 1;
+            this.app.showToast('Speed: 1x');
+        }
+    }
+
+    /**
      * Reset the timer
      */
     reset() {

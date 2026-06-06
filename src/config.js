@@ -1,5 +1,6 @@
 // Configuration constants
 export const CONFIG = {
+    VERSION: '1.0.0',
     STORAGE_KEY: 'teamSelectorState',
     LONG_PRESS_MS: 500,
     DRAG_THRESHOLD: 10,
@@ -72,7 +73,8 @@ export const DEFAULT_SETTINGS = {
     subsPerInterval: 0,  // 0 to max bench size
     opponentName: '',
     matchDate: '',
-    isHome: true
+    isHome: true,
+    debugMode: false
 };
 
 // Slot fill order: top to bottom, left to right (FW, LW, LCM, RCM, RW, LB, CB, RB, GK)
