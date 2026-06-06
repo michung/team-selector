@@ -788,11 +788,6 @@ export class TeamSelector {
             matchDurationInput.addEventListener('input', (e) => {
                 const newDuration = parseInt(e.target.value) || 10;
                 this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
-                // Cap interval count to new max
-                const maxIntervals = Math.floor(this.settings.matchDuration / 10);
-                if (this.settings.intervalCount > maxIntervals) {
-                    this.updateIntervalCount(maxIntervals);
-                }
                 this.renderIntervalTabs();
                 this.renderPitch();
                 this.renderBench();
@@ -804,11 +799,6 @@ export class TeamSelector {
                 const newDuration = parseInt(e.target.value) || 10;
                 this.settings.matchDuration = Math.max(10, Math.min(120, newDuration));
                 matchDurationInput.value = this.settings.matchDuration;
-                // Cap interval count to new max
-                const maxIntervals = Math.floor(this.settings.matchDuration / 10);
-                if (this.settings.intervalCount > maxIntervals) {
-                    this.updateIntervalCount(maxIntervals);
-                }
                 this.renderIntervalTabs();
                 this.renderPitch();
                 this.renderBench();

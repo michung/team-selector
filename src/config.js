@@ -11,7 +11,7 @@ export const CONFIG = {
         GOAL_US: [100, 50, 100],
         GOAL_THEM: 100
     },
-    INTERVAL_LIMITS: { MIN: 1, MAX: 6 },
+    INTERVAL_LIMITS: { MIN: 1, MAX: 8 },
     DEFAULT_MATCH_DURATION: 60
 };
 
